@@ -108,6 +108,21 @@ CREATE TABLE IF NOT EXISTS core_segments (
     priority INTEGER DEFAULT 5
 );
 
+CREATE TABLE IF NOT EXISTS scrape_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    route_id INTEGER,
+    source TEXT NOT NULL,
+    search_points_count INTEGER DEFAULT 0,
+    results_found INTEGER DEFAULT 0,
+    leads_created INTEGER DEFAULT 0,
+    duplicates_skipped INTEGER DEFAULT 0,
+    cuisine_filtered INTEGER DEFAULT 0,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    status TEXT DEFAULT 'running',
+    FOREIGN KEY (route_id) REFERENCES routes(id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_customers_route ON customers(route_id);
 CREATE INDEX IF NOT EXISTS idx_customers_location ON customers(latitude, longitude);
@@ -117,3 +132,4 @@ CREATE INDEX IF NOT EXISTS idx_lead_scores_lead ON lead_scores(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_scores_route ON lead_scores(nearest_route_id);
 CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops(route_id);
 CREATE INDEX IF NOT EXISTS idx_routes_dc ON routes(dc_id);
+CREATE INDEX IF NOT EXISTS idx_scrape_history_route ON scrape_history(route_id);

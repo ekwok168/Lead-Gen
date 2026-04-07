@@ -453,6 +453,53 @@ def update_core_segments(segments_df):
 
 
 # ---------------------------------------------------------------------------
+# Scrape History
+# ---------------------------------------------------------------------------
+
+def insert_scrape_history(route_id, source, search_points_count=0,
+                          results_found=0, leads_created=0, duplicates_skipped=0,
+                          cuisine_filtered=0, completed_at=None, status="running"):
+    """Log a scrape run."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO scrape_history (route_id, source, search_points_count,
+               results_found, leads_created, duplicates_skipped, cuisine_filtered,
+               completed_at, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (route_id, source, search_points_count, results_found, leads_created,
+         duplicates_skipped, cuisine_filtered, completed_at, status),
+    )
+    conn.commit()
+    history_id = cursor.lastrowid
+    conn.close()
+    return history_id
+
+
+def get_scrape_history(route_id=None, limit=50):
+    """Return scrape history records, optionally filtered by route."""
+    conn = get_connection()
+    if route_id:
+        df = pd.read_sql_query(
+            """SELECT sh.*, r.route_code, r.route_name
+               FROM scrape_history sh
+               LEFT JOIN routes r ON sh.route_id = r.id
+               WHERE sh.route_id = ?
+               ORDER BY sh.started_at DESC LIMIT ?""",
+            conn, params=(route_id, limit),
+        )
+    else:
+        df = pd.read_sql_query(
+            """SELECT sh.*, r.route_code, r.route_name
+               FROM scrape_history sh
+               LEFT JOIN routes r ON sh.route_id = r.id
+               ORDER BY sh.started_at DESC LIMIT ?""",
+            conn, params=(limit,),
+        )
+    conn.close()
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 

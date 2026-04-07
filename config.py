@@ -102,3 +102,55 @@ DUPLICATE_NAME_SIMILARITY_THRESHOLD = 85  # fuzzy match score 0-100
 # Map defaults
 MAP_DEFAULT_ZOOM = 11
 MAP_TILE_STYLE = "OpenStreetMap"
+
+# ---------------------------------------------------------------------------
+# Route Optimizer
+# ---------------------------------------------------------------------------
+
+ROUTE_GAP_THRESHOLD_MILES = 2.0
+ROUTE_SEARCH_RADIUS_MILES = 1.0
+SEARCH_POINT_SPACING_MILES = 1.0
+
+# Cuisine categories available for per-run selection
+CUISINE_CATEGORIES = {
+    "Chinese": ["chinese", "dim sum", "szechuan", "sichuan", "cantonese", "hunan",
+                "mandarin", "wok", "dumpling", "noodle", "peking", "chow mein",
+                "kung pao", "mapo", "hot pot"],
+    "Japanese": ["japanese", "sushi", "ramen", "izakaya", "tempura", "udon",
+                 "soba", "teriyaki", "yakitori", "teppanyaki", "donburi"],
+    "Korean": ["korean", "bibimbap", "bulgogi", "kimchi", "kbbq", "korean bbq",
+               "tteokbokki", "japchae"],
+    "Thai": ["thai", "pad thai", "curry", "tom yum", "tom kha", "green curry",
+             "red curry", "massaman"],
+    "Vietnamese": ["vietnamese", "pho", "banh mi", "bun", "spring roll", "vermicelli"],
+    "Other Asian": ["asian", "fusion", "taiwanese", "malaysian", "singaporean",
+                    "indonesian", "filipino", "mongolian", "cambodian", "burmese",
+                    "laotian", "himalayan", "nepali", "tibetan"],
+}
+
+# Flattened keyword list (used as default when all categories selected)
+ASIAN_CUISINE_KEYWORDS = []
+for _kws in CUISINE_CATEGORIES.values():
+    ASIAN_CUISINE_KEYWORDS.extend(_kws)
+
+# Yelp category codes mapped to our cuisine categories
+YELP_CUISINE_CATEGORIES = {
+    "Chinese": ["chinese", "dimsum", "cantonese", "szechuan", "shanghainese", "hainan"],
+    "Japanese": ["japanese", "sushi", "ramen", "izakaya", "tempura", "udon", "donburi",
+                 "teppanyaki"],
+    "Korean": ["korean", "kbbq"],
+    "Thai": ["thai"],
+    "Vietnamese": ["vietnamese", "pho"],
+    "Other Asian": ["asianfusion", "asian", "taiwanese", "malaysian", "singaporean",
+                    "indonesian", "filipino", "mongolian", "burmese", "cambodian",
+                    "himalayan", "laotian"],
+}
+
+# Scraping rate limits (seconds between requests)
+GOOGLE_PLACES_RATE_LIMIT = 0.1
+YELP_RATE_LIMIT = 1.0
+OVERPASS_RATE_LIMIT = 1.5
+
+# API keys - set via environment variables or enter in UI
+GOOGLE_PLACES_API_KEY = os.environ.get("GOOGLE_PLACES_API_KEY", "")
+YELP_API_KEY = os.environ.get("YELP_API_KEY", "")
