@@ -507,6 +507,52 @@ with tab4:
         except Exception as e:
             st.error(f"Could not parse pasted data: {e}")
 
+# ---- Database Backup & Restore ----
+st.markdown("---")
+st.markdown("### 💾 Database Backup & Restore")
+st.markdown("""
+**Important:** This app stores data in a local database file. If the app restarts
+(e.g., after updates or inactivity), your data may be reset. **Download a backup regularly**
+so you can restore your data if needed.
+""")
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.markdown("#### Download Backup")
+    import config as app_config
+    db_path = app_config.DB_PATH
+    if os.path.exists(db_path):
+        with open(db_path, "rb") as f:
+            db_bytes = f.read()
+        st.download_button(
+            "⬇️ Download Database Backup",
+            db_bytes,
+            "lead_gen_backup.db",
+            "application/octet-stream",
+            use_container_width=True,
+        )
+        import datetime
+        file_size = os.path.getsize(db_path)
+        st.caption(f"Database size: {file_size / 1024:.0f} KB")
+    else:
+        st.info("No database file found yet. Import data first.")
+
+with col2:
+    st.markdown("#### Restore from Backup")
+    restore_file = st.file_uploader(
+        "Upload a .db backup file",
+        type=["db"],
+        key="restore_db",
+    )
+    if restore_file:
+        st.warning("This will replace ALL current data with the backup. Are you sure?")
+        if st.button("✅ Restore Database", use_container_width=True, key="do_restore"):
+            with open(db_path, "wb") as f:
+                f.write(restore_file.getvalue())
+            st.success("Database restored from backup! The page will refresh.")
+            st.rerun()
+
 # ---- Data Management ----
 st.markdown("---")
 st.markdown("### 🗑️ Data Management")

@@ -2,8 +2,8 @@
 
 import os
 
-# Database
-DB_PATH = os.path.join(os.path.dirname(__file__), "lead_gen.db")
+# Database - can override with LEAD_GEN_DB_PATH environment variable
+DB_PATH = os.environ.get("LEAD_GEN_DB_PATH", os.path.join(os.path.dirname(__file__), "lead_gen.db"))
 
 # Scoring weights (must sum to 1.0)
 DEFAULT_WEIGHTS = {

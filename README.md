@@ -115,3 +115,57 @@ Lead-Gen/
 ```bash
 python -m pytest tests/ -v
 ```
+
+## Deploying to Streamlit Community Cloud (Free)
+
+This is the simplest way to make the tool live for your sales team. No servers, no IT setup.
+
+### Step 1: Get the code on GitHub
+
+Make sure this repository is pushed to GitHub (e.g., `github.com/your-org/Lead-Gen`).
+
+### Step 2: Deploy on Streamlit Cloud
+
+1. Go to [share.streamlit.io](https://share.streamlit.io)
+2. Sign in with your GitHub account
+3. Click **"New app"**
+4. Select your repository (`Lead-Gen`), branch (`main`), and main file (`app.py`)
+5. Click **"Deploy"**
+
+Streamlit will install dependencies and start your app. This takes 2-3 minutes the first time.
+
+### Step 3: Set a password (recommended)
+
+1. In the Streamlit Cloud dashboard, click on your app
+2. Click **"Settings"** > **"Secrets"**
+3. Add the following:
+   ```toml
+   password = "your-team-password-here"
+   ```
+4. Click **"Save"** - the app will restart with password protection enabled
+
+### Step 4: Share with your team
+
+Copy the app URL (e.g., `https://your-app-name.streamlit.app`) and share it with your salespeople. They just open the link in any browser and enter the password.
+
+### Important: Database Backups
+
+Streamlit Community Cloud uses ephemeral storage. Your database file may reset if the app sleeps (after ~7 days of no use) or when you push code updates.
+
+**To protect your data:**
+1. Go to the **Upload Data** page in the app
+2. Scroll to **"Database Backup & Restore"**
+3. Click **"Download Database Backup"** regularly (weekly recommended)
+4. If data is lost, use **"Restore from Backup"** to upload your saved `.db` file
+
+### Alternative: Run on your own server
+
+If you need persistent data without manual backups:
+
+```bash
+# On a Linux/Windows server your team can access
+pip install -r requirements.txt
+streamlit run app.py --server.port 8501
+```
+
+Your team accesses it at `http://your-server-ip:8501`. The database persists as long as the server is running.
