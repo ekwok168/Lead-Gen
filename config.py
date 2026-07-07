@@ -102,3 +102,24 @@ DUPLICATE_NAME_SIMILARITY_THRESHOLD = 85  # fuzzy match score 0-100
 # Map defaults
 MAP_DEFAULT_ZOOM = 11
 MAP_TILE_STYLE = "OpenStreetMap"
+
+# Restaurant discovery (OpenStreetMap Overpass API)
+OVERPASS_API_URL = "https://overpass-api.de/api/interpreter"
+OVERPASS_TIMEOUT = 60  # seconds per request
+OVERPASS_RATE_LIMIT_DELAY = 1.1  # seconds between requests
+OVERPASS_MAX_RETRIES = 3
+OVERPASS_DEFAULT_RADIUS_MI = 1.0
+DISCOVERY_AMENITY_TYPES = {
+    "restaurant": "Restaurant",
+    "fast_food": "Fast Food",
+    "cafe": "Cafe",
+    "bar": "Bar",
+    "pub": "Pub",
+}
+AMENITY_BUSINESS_TYPE_MAP = {
+    "restaurant": ("Restaurant", "Full-Service Restaurant"),
+    "fast_food": ("Restaurant", "Quick-Service Restaurant"),
+    "cafe": ("Restaurant", "Quick-Service Restaurant"),
+    "bar": ("Bar", "Entertainment"),
+    "pub": ("Bar", "Entertainment"),
+}
