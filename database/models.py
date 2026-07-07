@@ -1077,6 +1077,123 @@ def delete_task(task_id):
 
 
 # ---------------------------------------------------------------------------
+# Communications
+# ---------------------------------------------------------------------------
+
+UPDATABLE_TEMPLATE_FIELDS = {"name", "template_type", "subject", "body"}
+
+
+def get_all_templates():
+    """Return all communication templates as a DataFrame."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        "SELECT * FROM communication_templates ORDER BY template_type, name", conn
+    )
+    conn.close()
+    return df
+
+
+def get_template(template_id):
+    """Return a single communication template as a dict, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        "SELECT * FROM communication_templates WHERE id = ?", (template_id,)
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def insert_template(name, template_type, body, subject=None):
+    """Insert a new communication template and return its id."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO communication_templates (name, template_type, subject, body)
+           VALUES (?, ?, ?, ?)""",
+        (name, template_type, subject, body),
+    )
+    conn.commit()
+    template_id = cursor.lastrowid
+    conn.close()
+    return template_id
+
+
+def update_template(template_id, **fields):
+    """Update allowlisted fields on a communication template."""
+    for field in fields:
+        if field not in UPDATABLE_TEMPLATE_FIELDS:
+            raise ValueError(f"Field not updatable: {field}")
+    if not fields:
+        return
+    set_clause = ", ".join(f"{field} = ?" for field in fields)
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE communication_templates SET {set_clause}, "
+        f"updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (*fields.values(), template_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_template(template_id):
+    """Delete a template, clearing references from any emails that used it."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE emails SET template_id = NULL WHERE template_id = ?", (template_id,)
+    )
+    conn.execute("DELETE FROM communication_templates WHERE id = ?", (template_id,))
+    conn.commit()
+    conn.close()
+
+
+def insert_email(subject, body, to_address=None, lead_id=None, contact_id=None,
+                  template_id=None, status="Draft"):
+    """Insert a new email record and return its id."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO emails (subject, body, to_address, lead_id, contact_id,
+               template_id, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (subject, body, to_address, lead_id, contact_id, template_id, status),
+    )
+    conn.commit()
+    email_id = cursor.lastrowid
+    conn.close()
+    return email_id
+
+
+def get_emails_by_lead(lead_id):
+    """Return all emails for a lead, newest first."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT e.*, co.first_name as contact_first_name,
+               co.last_name as contact_last_name,
+               ct.name as template_name
+           FROM emails e
+           LEFT JOIN contacts co ON e.contact_id = co.id
+           LEFT JOIN communication_templates ct ON e.template_id = ct.id
+           WHERE e.lead_id = ?
+           ORDER BY e.created_at DESC, e.id DESC""",
+        conn,
+        params=(lead_id,),
+    )
+    conn.close()
+    return df
+
+
+def mark_email_sent(email_id):
+    """Mark an email as sent, stamping sent_at."""
+    conn = get_connection()
+    conn.execute(
+        """UPDATE emails SET status = 'Sent', sent_at = CURRENT_TIMESTAMP
+           WHERE id = ?""",
+        (email_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
@@ -1086,7 +1203,7 @@ def get_table_counts():
     counts = {}
     for table in ["distribution_centers", "routes", "customers", "leads", "lead_scores",
                   "route_stops", "contacts", "activities", "pipeline_stages", "deals",
-                  "deal_stage_history", "tasks"]:
+                  "deal_stage_history", "tasks", "communication_templates", "emails"]:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         counts[table] = row[0]
     conn.close()
@@ -1096,7 +1213,8 @@ def get_table_counts():
 def clear_all_data():
     """Clear all data from all tables."""
     conn = get_connection()
-    for table in ["tasks", "deal_stage_history", "deals", "pipeline_stages", "activities",
+    for table in ["emails", "communication_templates", "tasks", "deal_stage_history",
+                  "deals", "pipeline_stages", "activities",
                   "contacts", "lead_scores", "route_stops", "leads",
                   "customers", "routes", "distribution_centers", "core_segments"]:
         conn.execute(f"DELETE FROM {table}")

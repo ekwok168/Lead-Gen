@@ -209,6 +209,32 @@ CREATE TABLE IF NOT EXISTS tasks (
     FOREIGN KEY (deal_id) REFERENCES deals(id)
 );
 
+CREATE TABLE IF NOT EXISTS communication_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    template_type TEXT NOT NULL,  -- email, call_script, meeting_agenda
+    subject TEXT,
+    body TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS emails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    contact_id INTEGER,
+    to_address TEXT,
+    subject TEXT,
+    body TEXT,
+    status TEXT DEFAULT 'Draft',
+    template_id INTEGER,
+    sent_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (template_id) REFERENCES communication_templates(id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_customers_route ON customers(route_id);
 CREATE INDEX IF NOT EXISTS idx_customers_location ON customers(latitude, longitude);
@@ -232,3 +258,5 @@ CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_deal ON tasks(deal_id);
+CREATE INDEX IF NOT EXISTS idx_emails_lead ON emails(lead_id);
+CREATE INDEX IF NOT EXISTS idx_emails_contact ON emails(contact_id);
