@@ -9,17 +9,116 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import config
 from database.connection import init_db, seed_core_segments
 from database.models import (
     get_all_customers, get_all_leads, upsert_dc, upsert_route,
     insert_customer, bulk_insert_leads, rebuild_route_stops,
     get_table_counts, clear_all_data,
 )
+from utils.auth import require_auth
+from utils.cached import invalidate
+from utils.dedup import check_duplicate, filter_duplicates
+
+
+def _find_col(cols, keyword):
+    """Find the best matching column index for a keyword."""
+    keyword_lower = keyword.lower()
+    for i, col in enumerate(cols):
+        if col == "-- Not Available --":
+            continue
+        if keyword_lower in col.lower():
+            return i
+    return 0
+
+
+def _get_val(row, col_name, default=""):
+    """Get a value from a row using a column name, with default."""
+    if col_name == "-- Not Available --" or not col_name:
+        return default
+    val = row.get(col_name, default)
+    if pd.isna(val):
+        return default
+    return val
+
+
+def _safe_float(val):
+    """Safely convert to float."""
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return 0.0
+
+
+def _safe_int(val):
+    """Safely convert to int."""
+    try:
+        return int(float(val))
+    except (ValueError, TypeError):
+        return 0
+
+
+def parse_upload(uploaded_file):
+    """Parse an uploaded file (CSV or Excel) into a DataFrame."""
+    if uploaded_file is None:
+        return None
+    try:
+        if uploaded_file.name.endswith(".csv"):
+            return pd.read_csv(uploaded_file)
+        else:
+            return pd.read_excel(uploaded_file)
+    except Exception as e:
+        st.error(f"Could not read file: {e}")
+        return None
+
+
+def geocode_missing_coords(df):
+    """Attempt to geocode rows missing latitude/longitude."""
+    needs_geocoding = df[
+        (df["latitude"].isna() | (df["latitude"] == 0))
+        & df["address"].notna()
+        & (df["address"] != "")
+    ]
+
+    if needs_geocoding.empty:
+        return df
+
+    st.info(f"🌍 Geocoding {len(needs_geocoding)} addresses (this may take a moment)...")
+
+    try:
+        from geopy.geocoders import Nominatim
+        from geopy.exc import GeocoderTimedOut
+        import time
+
+        geolocator = Nominatim(user_agent="lead_gen_tool")
+        geocoded = 0
+
+        progress = st.progress(0)
+        for i, (idx, row) in enumerate(needs_geocoding.iterrows()):
+            try:
+                full_address = f"{row['address']}, {row.get('city', '')}, {row.get('state', '')} {row.get('zip_code', '')}"
+                location = geolocator.geocode(full_address, timeout=config.GEOCODING_TIMEOUT)
+                if location:
+                    df.at[idx, "latitude"] = location.latitude
+                    df.at[idx, "longitude"] = location.longitude
+                    geocoded += 1
+                time.sleep(config.GEOCODING_RATE_LIMIT_DELAY)
+            except (GeocoderTimedOut, Exception):
+                pass
+            progress.progress(min((i + 1) / len(needs_geocoding), 1.0))
+
+        st.success(f"Geocoded {geocoded} of {len(needs_geocoding)} addresses")
+    except ImportError:
+        st.warning("Geocoding not available. Please provide latitude and longitude columns.")
+
+    return df
+
 
 init_db()
 seed_core_segments()
 
 st.set_page_config(page_title="Upload Data", page_icon="📥", layout="wide")
+require_auth()
 st.title("📥 Upload Data")
 st.markdown("Import your data using Excel/CSV files or by pasting from a spreadsheet")
 
@@ -108,62 +207,6 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "🎯 Step 3: Prospects/Leads",
     "📋 Paste from Spreadsheet",
 ])
-
-
-def parse_upload(uploaded_file):
-    """Parse an uploaded file (CSV or Excel) into a DataFrame."""
-    if uploaded_file is None:
-        return None
-    try:
-        if uploaded_file.name.endswith(".csv"):
-            return pd.read_csv(uploaded_file)
-        else:
-            return pd.read_excel(uploaded_file)
-    except Exception as e:
-        st.error(f"Could not read file: {e}")
-        return None
-
-
-def geocode_missing_coords(df):
-    """Attempt to geocode rows missing latitude/longitude."""
-    needs_geocoding = df[
-        (df["latitude"].isna() | (df["latitude"] == 0))
-        & df["address"].notna()
-        & (df["address"] != "")
-    ]
-
-    if needs_geocoding.empty:
-        return df
-
-    st.info(f"🌍 Geocoding {len(needs_geocoding)} addresses (this may take a moment)...")
-
-    try:
-        from geopy.geocoders import Nominatim
-        from geopy.exc import GeocoderTimedOut
-        import time
-
-        geolocator = Nominatim(user_agent="lead_gen_tool")
-        geocoded = 0
-
-        progress = st.progress(0)
-        for idx, row in needs_geocoding.iterrows():
-            try:
-                full_address = f"{row['address']}, {row.get('city', '')}, {row.get('state', '')} {row.get('zip_code', '')}"
-                location = geolocator.geocode(full_address, timeout=10)
-                if location:
-                    df.at[idx, "latitude"] = location.latitude
-                    df.at[idx, "longitude"] = location.longitude
-                    geocoded += 1
-                time.sleep(1.1)  # Rate limit
-            except (GeocoderTimedOut, Exception):
-                pass
-            progress.progress((geocoded + 1) / len(needs_geocoding))
-
-        st.success(f"Geocoded {geocoded} of {len(needs_geocoding)} addresses")
-    except ImportError:
-        st.warning("Geocoding not available. Please provide latitude and longitude columns.")
-
-    return df
 
 
 # ---- Tab 1: Routes & DCs ----
@@ -304,45 +347,59 @@ with tab2:
                     routes_map[r["route_code"]] = r["id"]
                 conn.close()
 
+                records = []
                 for idx, row in df.iterrows():
+                    name = _get_val(row, name_col, "")
+                    if not name:
+                        errors.append(f"Row {idx + 1}: Missing business name")
+                        continue
+
+                    records.append({
+                        "row": idx + 1,
+                        "name": name,
+                        "address": _get_val(row, addr_col, ""),
+                        "city": _get_val(row, city_col, ""),
+                        "state": _get_val(row, state_col, ""),
+                        "zip_code": str(_get_val(row, zip_col, "")),
+                        "latitude": _safe_float(_get_val(row, lat_col, 0)),
+                        "longitude": _safe_float(_get_val(row, lon_col, 0)),
+                        "business_type": _get_val(row, btype_col, ""),
+                        "segment": _get_val(row, seg_col, ""),
+                        "weekly_revenue": _safe_float(_get_val(row, rev_col, 0)),
+                        "route_code": _get_val(row, route_col, ""),
+                        "stop_sequence": _safe_int(_get_val(row, seq_col, idx + 1)),
+                    })
+
+                cust_df = pd.DataFrame(records)
+                if not cust_df.empty:
+                    cust_df = geocode_missing_coords(cust_df)
+
+                for _, rec in cust_df.iterrows():
                     try:
-                        name = _get_val(row, name_col, "")
-                        if not name:
-                            errors.append(f"Row {idx + 1}: Missing business name")
-                            continue
-
-                        lat = _safe_float(_get_val(row, lat_col, 0))
-                        lon = _safe_float(_get_val(row, lon_col, 0))
-
-                        # Try geocoding if no coords
-                        if (lat == 0 or lon == 0) and _get_val(row, addr_col, ""):
-                            pass  # Will handle batch geocoding later
-
-                        route_code = _get_val(row, route_col, "")
-                        route_id = routes_map.get(route_code)
-
+                        route_id = routes_map.get(rec["route_code"])
                         insert_customer(
-                            name=name,
-                            address=_get_val(row, addr_col, ""),
-                            city=_get_val(row, city_col, ""),
-                            state=_get_val(row, state_col, ""),
-                            zip_code=str(_get_val(row, zip_col, "")),
-                            latitude=lat,
-                            longitude=lon,
-                            business_type=_get_val(row, btype_col, ""),
-                            segment=_get_val(row, seg_col, ""),
-                            weekly_revenue=_safe_float(_get_val(row, rev_col, 0)),
+                            name=rec["name"],
+                            address=rec["address"],
+                            city=rec["city"],
+                            state=rec["state"],
+                            zip_code=rec["zip_code"],
+                            latitude=rec["latitude"],
+                            longitude=rec["longitude"],
+                            business_type=rec["business_type"],
+                            segment=rec["segment"],
+                            weekly_revenue=rec["weekly_revenue"],
                             route_id=route_id,
-                            stop_sequence=_safe_int(_get_val(row, seq_col, idx + 1)),
+                            stop_sequence=rec["stop_sequence"],
                         )
                         imported += 1
                     except Exception as e:
-                        errors.append(f"Row {idx + 1}: {str(e)}")
+                        errors.append(f"Row {rec['row']}: {str(e)}")
 
                 # Rebuild route stops
                 for route_id in set(routes_map.values()):
                     rebuild_route_stops(route_id)
 
+                invalidate()
                 st.success(f"Imported {imported} customers")
                 if errors:
                     with st.expander(f"⚠️ {len(errors)} issues"):
@@ -391,70 +448,56 @@ with tab3:
                 web_col = st.selectbox("Website", cols, index=_find_col(cols, "website"), key="l_web")
 
             if st.button("✅ Import Leads (with duplicate check)", use_container_width=True, key="import_leads"):
+                records = []
+                indices = []
+                for idx, row in df.iterrows():
+                    name = _get_val(row, name_col, "")
+                    if not name:
+                        continue
+
+                    records.append({
+                        "name": name,
+                        "address": _get_val(row, addr_col, ""),
+                        "city": _get_val(row, city_col, ""),
+                        "state": _get_val(row, state_col, ""),
+                        "zip_code": str(_get_val(row, zip_col, "")),
+                        "latitude": _safe_float(_get_val(row, lat_col, 0)),
+                        "longitude": _safe_float(_get_val(row, lon_col, 0)),
+                        "business_type": _get_val(row, btype_col, ""),
+                        "segment": _get_val(row, seg_col, ""),
+                        "estimated_weekly_revenue": _safe_float(_get_val(row, rev_col, 0)),
+                        "phone": _get_val(row, phone_col, ""),
+                        "website": _get_val(row, web_col, ""),
+                        "source": "File Upload",
+                        "status": "New",
+                    })
+                    indices.append(idx)
+
+                leads_df = pd.DataFrame(records, index=indices)
+                if not leads_df.empty:
+                    leads_df = geocode_missing_coords(leads_df)
+
                 with st.spinner("Checking for duplicates against existing customers..."):
                     existing_customers = get_all_customers()
                     existing_leads = get_all_leads()
 
-                    new_leads = []
-                    duplicates = []
+                    unique_df, dupes_df = filter_duplicates(
+                        leads_df, existing_customers, existing_leads
+                    )
 
-                    for idx, row in df.iterrows():
-                        name = _get_val(row, name_col, "")
-                        if not name:
-                            continue
-
-                        addr = _get_val(row, addr_col, "")
-                        lat = _safe_float(_get_val(row, lat_col, 0))
-                        lon = _safe_float(_get_val(row, lon_col, 0))
-
-                        # Check for duplicate against existing customers
-                        is_dup, dup_info = _check_duplicate(
-                            name, addr, lat, lon, existing_customers
-                        )
-
-                        if is_dup:
-                            duplicates.append({"row": idx + 1, "name": name, "reason": dup_info})
-                            continue
-
-                        # Also check against already-uploaded leads
-                        is_dup2, dup_info2 = _check_duplicate(
-                            name, addr, lat, lon, existing_leads
-                        )
-                        if is_dup2:
-                            duplicates.append({"row": idx + 1, "name": name, "reason": f"Already in leads: {dup_info2}"})
-                            continue
-
-                        new_leads.append({
-                            "name": name,
-                            "address": addr,
-                            "city": _get_val(row, city_col, ""),
-                            "state": _get_val(row, state_col, ""),
-                            "zip_code": str(_get_val(row, zip_col, "")),
-                            "latitude": lat,
-                            "longitude": lon,
-                            "business_type": _get_val(row, btype_col, ""),
-                            "segment": _get_val(row, seg_col, ""),
-                            "estimated_weekly_revenue": _safe_float(_get_val(row, rev_col, 0)),
-                            "phone": _get_val(row, phone_col, ""),
-                            "website": _get_val(row, web_col, ""),
-                            "source": "File Upload",
-                            "status": "New",
-                        })
-
-                    if new_leads:
-                        leads_df = pd.DataFrame(new_leads)
-                        bulk_insert_leads(leads_df)
+                    if not unique_df.empty:
+                        bulk_insert_leads(unique_df)
+                        invalidate()
 
                     st.success(
                         f"**Uploaded {len(df)} prospects.** "
-                        f"{len(duplicates)} are already your customers. "
-                        f"**{len(new_leads)} new leads added.**"
+                        f"{len(dupes_df)} are already your customers. "
+                        f"**{len(unique_df)} new leads added.**"
                     )
 
-                    if duplicates:
-                        with st.expander(f"🔄 {len(duplicates)} duplicates found (excluded)"):
-                            dup_df = pd.DataFrame(duplicates)
-                            st.dataframe(dup_df, use_container_width=True)
+                    if not dupes_df.empty:
+                        with st.expander(f"🔄 {len(dupes_df)} duplicates found (excluded)"):
+                            st.dataframe(dupes_df, use_container_width=True)
 
 
 # ---- Tab 4: Paste from Spreadsheet ----
@@ -488,13 +531,32 @@ with tab4:
                 for col in ["latitude", "longitude"]:
                     if col not in df.columns:
                         df[col] = 0.0
+                    else:
+                        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
                 if "name" not in df.columns:
                     st.error("Data must include a 'name' column")
                 else:
                     df["source"] = "Paste Import"
                     df["status"] = "New"
-                    bulk_insert_leads(df)
-                    st.success(f"Imported {len(df)} leads!")
+
+                    with st.spinner("Checking for duplicates against existing customers..."):
+                        existing_customers = get_all_customers()
+                        existing_leads = get_all_leads()
+                        unique_df, dupes_df = filter_duplicates(
+                            df, existing_customers, existing_leads
+                        )
+
+                    if not unique_df.empty:
+                        bulk_insert_leads(unique_df)
+                        invalidate()
+
+                    st.success(
+                        f"Imported {len(unique_df)} leads! "
+                        f"{len(dupes_df)} duplicates skipped."
+                    )
+                    if not dupes_df.empty:
+                        with st.expander(f"🔄 {len(dupes_df)} duplicates found (excluded)"):
+                            st.dataframe(dupes_df, use_container_width=True)
 
             elif data_type == "Customers":
                 st.info("For customers, please use the Excel upload tab with column mapping for best results.")
@@ -520,8 +582,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     st.markdown("#### Download Backup")
-    import config as app_config
-    db_path = app_config.DB_PATH
+    db_path = config.DB_PATH
     if os.path.exists(db_path):
         with open(db_path, "rb") as f:
             db_bytes = f.read()
@@ -532,7 +593,6 @@ with col1:
             "application/octet-stream",
             use_container_width=True,
         )
-        import datetime
         file_size = os.path.getsize(db_path)
         st.caption(f"Database size: {file_size / 1024:.0f} KB")
     else:
@@ -548,10 +608,38 @@ with col2:
     if restore_file:
         st.warning("This will replace ALL current data with the backup. Are you sure?")
         if st.button("✅ Restore Database", use_container_width=True, key="do_restore"):
-            with open(db_path, "wb") as f:
-                f.write(restore_file.getvalue())
-            st.success("Database restored from backup! The page will refresh.")
-            st.rerun()
+            import sqlite3
+            import tempfile
+
+            data = restore_file.getvalue()
+            if not data.startswith(b"SQLite format 3\x00"):
+                st.error("This file is not a valid SQLite database. Restore cancelled.")
+            else:
+                tmp_path = None
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+                        tmp.write(data)
+                        tmp_path = tmp.name
+                    check_conn = sqlite3.connect(tmp_path)
+                    try:
+                        result = check_conn.execute("PRAGMA integrity_check").fetchone()
+                    finally:
+                        check_conn.close()
+
+                    if result and result[0] == "ok":
+                        with open(db_path, "wb") as f:
+                            f.write(data)
+                        invalidate()
+                        st.success("Database restored from backup! The page will refresh.")
+                        st.rerun()
+                    else:
+                        detail = result[0] if result else "unknown error"
+                        st.error(f"Backup file failed integrity check: {detail}. Restore cancelled.")
+                except sqlite3.Error as e:
+                    st.error(f"Could not validate backup file: {e}. Restore cancelled.")
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.unlink(tmp_path)
 
 # ---- Data Management ----
 st.markdown("---")
@@ -582,6 +670,7 @@ with st.expander("View current data counts and clear data"):
             if st.button("Yes, clear everything", type="primary"):
                 clear_all_data()
                 seed_core_segments()
+                invalidate()
                 st.session_state["confirm_clear"] = False
                 st.success("All data cleared!")
                 st.rerun()
@@ -589,84 +678,3 @@ with st.expander("View current data counts and clear data"):
             if st.button("Cancel"):
                 st.session_state["confirm_clear"] = False
                 st.rerun()
-
-
-# ---- Helper Functions ----
-
-def _find_col(cols, keyword):
-    """Find the best matching column index for a keyword."""
-    keyword_lower = keyword.lower()
-    for i, col in enumerate(cols):
-        if col == "-- Not Available --":
-            continue
-        if keyword_lower in col.lower():
-            return i
-    return 0
-
-
-def _get_val(row, col_name, default=""):
-    """Get a value from a row using a column name, with default."""
-    if col_name == "-- Not Available --" or not col_name:
-        return default
-    val = row.get(col_name, default)
-    if pd.isna(val):
-        return default
-    return val
-
-
-def _safe_float(val):
-    """Safely convert to float."""
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return 0.0
-
-
-def _safe_int(val):
-    """Safely convert to int."""
-    try:
-        return int(float(val))
-    except (ValueError, TypeError):
-        return 0
-
-
-def _check_duplicate(name, address, lat, lon, existing_df):
-    """Check if a lead is a duplicate of an existing record.
-
-    Uses name matching and proximity.
-    Returns (is_duplicate, info_string).
-    """
-    if existing_df.empty:
-        return False, ""
-
-    # Exact name match (case-insensitive)
-    name_lower = (name or "").lower().strip()
-    if "name" in existing_df.columns:
-        exact_match = existing_df[existing_df["name"].str.lower().str.strip() == name_lower]
-        if not exact_match.empty:
-            match = exact_match.iloc[0]
-            route_info = f" on route {match.get('route_code', 'N/A')}" if "route_code" in match.index else ""
-            return True, f"Exact name match: '{match['name']}'{route_info}"
-
-    # Fuzzy name match
-    try:
-        from thefuzz import fuzz
-        for _, existing in existing_df.iterrows():
-            existing_name = str(existing.get("name", ""))
-            if fuzz.ratio(name_lower, existing_name.lower().strip()) >= 85:
-                route_info = f" on route {existing.get('route_code', 'N/A')}" if "route_code" in existing.index else ""
-                return True, f"Similar name: '{existing_name}'{route_info}"
-    except ImportError:
-        pass
-
-    # Proximity check (within ~264 feet = 0.05 miles)
-    if lat != 0 and lon != 0 and "latitude" in existing_df.columns:
-        close = existing_df[
-            (abs(existing_df["latitude"] - lat) < 0.001)
-            & (abs(existing_df["longitude"] - lon) < 0.001)
-        ]
-        if not close.empty:
-            match = close.iloc[0]
-            return True, f"Very close to existing: '{match.get('name', 'Unknown')}'"
-
-    return False, ""

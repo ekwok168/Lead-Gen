@@ -100,6 +100,11 @@ CREATE TABLE IF NOT EXISTS lead_scores (
     FOREIGN KEY (nearest_stop_id) REFERENCES route_stops(id)
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
 CREATE TABLE IF NOT EXISTS core_segments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     segment_name TEXT NOT NULL,

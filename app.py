@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from database.connection import init_db, seed_core_segments
 from database.models import get_table_counts
+from utils.auth import require_auth
 
 # Page configuration
 st.set_page_config(
@@ -18,34 +19,7 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-
-# --- Password Protection ---
-def check_password():
-    """Return True if the user has entered the correct password."""
-    # If no password is configured in secrets, skip auth
-    try:
-        correct_password = st.secrets["password"]
-    except (KeyError, FileNotFoundError):
-        return True
-
-    if st.session_state.get("authenticated"):
-        return True
-
-    st.markdown("### 🔒 Lead Generation Tool")
-    st.markdown("Please enter the password to access this tool.")
-    password = st.text_input("Password", type="password", key="password_input")
-
-    if password:
-        if password == correct_password:
-            st.session_state["authenticated"] = True
-            st.rerun()
-        else:
-            st.error("Incorrect password. Please try again.")
-    return False
-
-
-if not check_password():
-    st.stop()
+require_auth()
 
 
 # Custom CSS for larger fonts and buttons (non-technical user friendly)
@@ -193,7 +167,9 @@ else:
             status_text.text(msg)
 
         from scoring.engine import score_all_leads
+        from utils.cached import invalidate
         results = score_all_leads(progress_callback=update_progress)
+        invalidate()
 
         if not results.empty:
             st.success(f"Scored {len(results)} leads! Navigate to Dashboard or Lead Explorer to review.")

@@ -9,16 +9,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from database.connection import init_db
-from database.models import (
-    get_all_dcs, get_routes_by_dc, get_customers_by_dc,
-    get_all_stops, get_leads_with_scores, get_dc,
-)
+from database.models import get_all_dcs, get_all_stops
 from reports.dc_report import generate_dc_report
 from maps.visualizations import create_dc_map
+from utils.auth import require_auth
 
 init_db()
 
 st.set_page_config(page_title="DC View", page_icon="🏢", layout="wide")
+require_auth()
 st.title("🏢 Distribution Center View")
 
 dcs = get_all_dcs()
@@ -92,13 +91,13 @@ if selected_dc_id:
     st.markdown("#### DC Coverage Map")
     st.markdown("Shows all routes (colored lines), delivery stops, and prospects (color-coded by grade)")
 
-    dc_info = get_dc(selected_dc_id)
-    routes = get_routes_by_dc(selected_dc_id)
-    customers = get_customers_by_dc(selected_dc_id)
+    data = report["data"]
+    dc_info = data["dc"]
+    routes = data["routes_df"]
+    customers = data["customers_df"]
+    dc_leads = data["leads_df"]
     all_stops = get_all_stops()
     dc_stops = all_stops[all_stops["dc_id"] == selected_dc_id] if not all_stops.empty and "dc_id" in all_stops.columns else pd.DataFrame()
-    scored = get_leads_with_scores()
-    dc_leads = scored[scored["nearest_dc_id"] == selected_dc_id] if not scored.empty and "nearest_dc_id" in scored.columns else pd.DataFrame()
 
     try:
         from streamlit_folium import st_folium

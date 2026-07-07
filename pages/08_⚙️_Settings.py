@@ -8,13 +8,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from database.connection import init_db, seed_core_segments
-from database.models import get_core_segments, update_core_segments
+from database.models import get_core_segments, update_core_segments, get_setting, set_setting
+from utils.auth import require_auth
 import config
 
 init_db()
 seed_core_segments()
 
 st.set_page_config(page_title="Settings", page_icon="⚙️", layout="wide")
+require_auth()
 st.title("⚙️ Settings")
 
 # Scoring weights
@@ -26,9 +28,9 @@ Higher weight = more influence on the final score. Weights must add up to 100%.
 
 col1, col2, col3, col4 = st.columns(4)
 
-# Load current weights from session state or defaults
+# Load current weights from saved settings or defaults
 if "weights" not in st.session_state:
-    st.session_state["weights"] = config.DEFAULT_WEIGHTS.copy()
+    st.session_state["weights"] = get_setting("scoring_weights", config.DEFAULT_WEIGHTS).copy()
 
 with col1:
     st.markdown("**📍 Proximity**")
@@ -69,12 +71,14 @@ if st.button("Save Weights", use_container_width=True):
     if total_weight != 100:
         st.error("Weights must add up to 100% before saving.")
     else:
-        st.session_state["weights"] = {
+        new_weights = {
             "proximity": prox_w / 100,
             "segment": seg_w / 100,
             "density": dens_w / 100,
             "revenue": rev_w / 100,
         }
+        set_setting("scoring_weights", new_weights)
+        st.session_state["weights"] = new_weights
         st.success("Weights saved! Click **Score All Leads** in the sidebar to re-score with new weights.")
 
 st.markdown("---")

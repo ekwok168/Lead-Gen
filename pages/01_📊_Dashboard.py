@@ -12,12 +12,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database.connection import init_db
 from database.models import (
     get_table_counts, get_all_dcs, get_all_routes, get_all_customers,
-    get_leads_with_scores,
 )
+from utils.auth import require_auth
+from utils.cached import leads_with_scores
 
 init_db()
 
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
+require_auth()
 st.title("📊 Dashboard")
 
 counts = get_table_counts()
@@ -40,7 +42,7 @@ with col5:
     st.metric("Scored Leads", counts.get("lead_scores", 0))
 
 # Load scored leads
-scored = get_leads_with_scores()
+scored = leads_with_scores()
 
 if scored.empty or "total_score" not in scored.columns or scored["total_score"].isna().all():
     st.warning("Leads have not been scored yet. Click **'Score All Leads'** in the sidebar to run scoring.")

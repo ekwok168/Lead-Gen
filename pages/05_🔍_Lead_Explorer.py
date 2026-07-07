@@ -10,18 +10,21 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from database.connection import init_db
 from database.models import (
-    get_leads_with_scores, update_lead_status, update_lead_assignment,
+    update_lead_status, update_lead_assignment,
     update_lead_notes, delete_lead,
 )
 from scoring.engine import generate_why_text
+from utils.auth import require_auth
+from utils.cached import leads_with_scores, invalidate
 import config
 
 init_db()
 
 st.set_page_config(page_title="Lead Explorer", page_icon="🔍", layout="wide")
+require_auth()
 st.title("🔍 Lead Explorer")
 
-scored = get_leads_with_scores()
+scored = leads_with_scores()
 
 if scored.empty:
     st.info("No leads found. Go to **Upload Data** to import prospects.")
@@ -193,6 +196,7 @@ if not filtered.empty:
             )
             if st.button("Save Status", key=f"save_status_{selected_lead_id}"):
                 update_lead_status(selected_lead_id, new_status)
+                invalidate()
                 st.success(f"Status updated to: {new_status}")
                 st.rerun()
 
@@ -205,6 +209,7 @@ if not filtered.empty:
             )
             if st.button("Save Assignment", key=f"save_assign_{selected_lead_id}"):
                 update_lead_assignment(selected_lead_id, new_assign)
+                invalidate()
                 st.success(f"Assigned to: {new_assign}")
                 st.rerun()
 
@@ -217,11 +222,13 @@ if not filtered.empty:
             )
             if st.button("Save Notes", key=f"save_notes_{selected_lead_id}"):
                 update_lead_notes(selected_lead_id, new_notes)
+                invalidate()
                 st.success("Notes saved!")
 
         # Delete
         if st.button("🗑️ Delete This Lead", type="secondary", key=f"delete_{selected_lead_id}"):
             delete_lead(selected_lead_id)
+            invalidate()
             st.success("Lead deleted.")
             st.rerun()
 

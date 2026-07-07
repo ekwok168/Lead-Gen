@@ -17,10 +17,12 @@ from reports.export import (
     export_dc_report_excel, export_route_report_excel,
     generate_leads_csv, export_to_csv,
 )
+from utils.auth import require_auth
 
 init_db()
 
 st.set_page_config(page_title="Reports", page_icon="📋", layout="wide")
+require_auth()
 st.title("📋 Reports")
 st.markdown("Generate and download reports for distribution centers and routes")
 

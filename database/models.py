@@ -1,5 +1,7 @@
 """Data access layer for all database entities."""
 
+import json
+
 import pandas as pd
 
 from database.connection import get_connection
@@ -308,7 +310,7 @@ def get_leads_with_scores():
     # Fix SQLite boolean column (stored as bytes in some drivers)
     if "is_core_segment" in df.columns:
         df["is_core_segment"] = df["is_core_segment"].apply(
-            lambda x: int.from_bytes(x, "little") if isinstance(x, bytes) else (int(x) if x is not None else 0)
+            lambda x: int.from_bytes(x, "little") if isinstance(x, bytes) else (0 if pd.isna(x) else int(x))
         )
     return df
 
@@ -353,37 +355,35 @@ def bulk_insert_leads(df):
     conn.close()
 
 
-def update_lead_status(lead_id, status):
-    """Update a lead's status."""
+UPDATABLE_LEAD_FIELDS = {"status", "assigned_salesperson", "notes"}
+
+
+def update_lead_field(lead_id, field, value):
+    """Update a single allowlisted field on a lead."""
+    if field not in UPDATABLE_LEAD_FIELDS:
+        raise ValueError(f"Field not updatable: {field}")
     conn = get_connection()
     conn.execute(
-        "UPDATE leads SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (status, lead_id),
+        f"UPDATE leads SET {field} = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (value, lead_id),
     )
     conn.commit()
     conn.close()
+
+
+def update_lead_status(lead_id, status):
+    """Update a lead's status."""
+    update_lead_field(lead_id, "status", status)
 
 
 def update_lead_assignment(lead_id, salesperson):
     """Update a lead's assigned salesperson."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE leads SET assigned_salesperson = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (salesperson, lead_id),
-    )
-    conn.commit()
-    conn.close()
+    update_lead_field(lead_id, "assigned_salesperson", salesperson)
 
 
 def update_lead_notes(lead_id, notes):
     """Update a lead's notes."""
-    conn = get_connection()
-    conn.execute(
-        "UPDATE leads SET notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-        (notes, lead_id),
-    )
-    conn.commit()
-    conn.close()
+    update_lead_field(lead_id, "notes", notes)
 
 
 def delete_lead(lead_id):
@@ -423,6 +423,27 @@ def insert_lead_score(lead_id, nearest_route_id, nearest_dc_id, nearest_stop_id,
     conn.close()
 
 
+def replace_all_lead_scores(rows):
+    """Replace all lead scores with new rows in a single transaction."""
+    conn = get_connection()
+    conn.execute("DELETE FROM lead_scores")
+    conn.executemany(
+        """INSERT INTO lead_scores (lead_id, nearest_route_id, nearest_dc_id, nearest_stop_id,
+               proximity_score, segment_score, density_score, revenue_score,
+               total_score, score_grade, is_core_segment,
+               nearest_customer_distance_mi, nearest_route_stop_distance_mi,
+               suggested_insertion_sequence)
+           VALUES (:lead_id, :nearest_route_id, :nearest_dc_id, :nearest_stop_id,
+               :proximity_score, :segment_score, :density_score, :revenue_score,
+               :total_score, :score_grade, :is_core_segment,
+               :nearest_customer_distance_mi, :nearest_route_stop_distance_mi,
+               :suggested_insertion_sequence)""",
+        rows,
+    )
+    conn.commit()
+    conn.close()
+
+
 def clear_scores():
     """Clear all lead scores (before re-scoring)."""
     conn = get_connection()
@@ -448,6 +469,32 @@ def update_core_segments(segments_df):
     conn = get_connection()
     conn.execute("DELETE FROM core_segments")
     segments_df.to_sql("core_segments", conn, if_exists="append", index=False)
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# App Settings
+# ---------------------------------------------------------------------------
+
+def get_setting(key, default=None):
+    """Return a JSON-decoded setting value, or default if not set."""
+    conn = get_connection()
+    conn.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)")
+    row = conn.execute("SELECT value FROM app_settings WHERE key = ?", (key,)).fetchone()
+    conn.close()
+    return json.loads(row["value"]) if row else default
+
+
+def set_setting(key, value):
+    """Store a JSON-encoded setting value."""
+    conn = get_connection()
+    conn.execute("CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT)")
+    conn.execute(
+        """INSERT INTO app_settings (key, value) VALUES (?, ?)
+           ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
+        (key, json.dumps(value)),
+    )
     conn.commit()
     conn.close()
 
