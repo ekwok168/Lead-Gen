@@ -114,6 +114,52 @@ def export_route_report_excel(report_data):
     return output.getvalue()
 
 
+def export_analytics_excel(forecast, territory_df, leaderboard_df, trending_df):
+    """Export analytics data to a multi-sheet Excel workbook.
+
+    Args:
+        forecast: dict from compute_pipeline_forecast()
+        territory_df: DataFrame from compute_territory_performance()
+        leaderboard_df: DataFrame from compute_salesperson_leaderboard()
+        trending_df: DataFrame from compute_revenue_trending()
+
+    Returns:
+        bytes of the Excel file
+    """
+    output = io.BytesIO()
+
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        forecast = forecast or {}
+        summary_df = pd.DataFrame([{
+            "Weighted Pipeline": float(forecast.get("weighted_total") or 0),
+            "Best Case": float(forecast.get("best_case") or 0),
+        }])
+        summary_df.to_excel(writer, sheet_name="Forecast by Stage", index=False)
+
+        by_stage = forecast.get("by_stage")
+        if by_stage is not None and not by_stage.empty:
+            fs = by_stage.copy()
+            fs.columns = [c.replace("_", " ").title() for c in fs.columns]
+            fs.to_excel(writer, sheet_name="Forecast by Stage", index=False, startrow=3)
+
+        if territory_df is not None and not territory_df.empty:
+            terr = territory_df.copy()
+            terr.columns = [c.replace("_", " ").title() for c in terr.columns]
+            terr.to_excel(writer, sheet_name="Territory", index=False)
+
+        if leaderboard_df is not None and not leaderboard_df.empty:
+            lb = leaderboard_df.copy()
+            lb.columns = [c.replace("_", " ").title() for c in lb.columns]
+            lb.to_excel(writer, sheet_name="Leaderboard", index=False)
+
+        if trending_df is not None and not trending_df.empty:
+            tr = trending_df.copy()
+            tr.columns = [c.replace("_", " ").title() for c in tr.columns]
+            tr.to_excel(writer, sheet_name="Trend", index=False)
+
+    return output.getvalue()
+
+
 def generate_leads_csv(leads_df):
     """Export all scored leads to CSV with key fields."""
     if leads_df.empty:

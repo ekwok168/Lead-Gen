@@ -42,6 +42,14 @@ with col4:
 with col5:
     st.metric("Scored Leads", counts.get("lead_scores", 0))
 
+try:
+    from reports.analytics import compute_pipeline_forecast
+
+    weighted_total = float((compute_pipeline_forecast() or {}).get("weighted_total") or 0)
+    st.metric("Weighted Pipeline", f"${weighted_total:,.0f}/wk")
+except Exception:
+    pass
+
 # Load scored leads
 scored = leads_with_scores()
 

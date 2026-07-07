@@ -218,6 +218,7 @@ else:
     - **📈 Pipeline** - Track deals through your sales stages
     - **✅ Tasks** - Follow-ups and to-dos with due dates
     - **✉️ Communications** - Email templates and call logging
+    - **📊 Analytics** - Forecasts, territory performance, and leaderboards
     - **📋 Reports** - Generate and export reports
     - **⚙️ Settings** - Configure scoring weights and segments
     """)
