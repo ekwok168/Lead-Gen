@@ -138,3 +138,8 @@ DEFAULT_PIPELINE_STAGES = [
     ("Closed Won", 5, 100),
     ("Closed Lost", 6, 0),
 ]
+
+# CRM: tasks
+TASK_TYPES = ["Follow-up", "Call", "Email", "Meeting", "Site Visit", "Other"]
+TASK_PRIORITIES = ["Low", "Medium", "High", "Urgent"]
+TASK_STATUSES = ["Open", "In Progress", "Completed", "Cancelled"]
