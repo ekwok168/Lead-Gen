@@ -127,3 +127,14 @@ AMENITY_BUSINESS_TYPE_MAP = {
 # CRM: contacts & activities
 ACTIVITY_TYPES = ["Call", "Email", "Meeting", "Note", "Status Change"]
 CONTACT_METHODS = ["Phone", "Email", "In Person", "Text"]
+
+# CRM: sales pipeline
+DEFAULT_PIPELINE_STAGES = [
+    # (name, display_order, probability_pct)
+    ("Prospect", 1, 10),
+    ("Qualified", 2, 25),
+    ("Proposal", 3, 50),
+    ("Negotiation", 4, 75),
+    ("Closed Won", 5, 100),
+    ("Closed Lost", 6, 0),
+]
