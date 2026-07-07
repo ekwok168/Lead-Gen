@@ -12,11 +12,21 @@ from database.connection import init_db
 from database.models import (
     update_lead_status, update_lead_assignment,
     update_lead_notes, delete_lead,
+    get_contacts_by_lead, insert_contact,
+    get_activities_by_lead, insert_activity,
 )
 from scoring.engine import generate_why_text
 from utils.auth import require_auth
 from utils.cached import leads_with_scores, invalidate
 import config
+
+ACTIVITY_ICONS = {
+    "Call": "📞",
+    "Email": "✉️",
+    "Meeting": "🤝",
+    "Note": "📝",
+    "Status Change": "🔄",
+}
 
 init_db()
 
@@ -225,7 +235,105 @@ if not filtered.empty:
                 invalidate()
                 st.success("Notes saved!")
 
+        # Contacts
+        st.markdown("---")
+        st.markdown("#### 👥 Contacts")
+
+        contacts = get_contacts_by_lead(selected_lead_id)
+        if contacts.empty:
+            st.caption("No contacts yet for this lead.")
+        else:
+            for _, contact in contacts.iterrows():
+                full_name = " ".join(
+                    p for p in [contact.get("first_name"), contact.get("last_name")] if isinstance(p, str) and p
+                )
+                parts = [f"**{full_name}**"]
+                if contact.get("title"):
+                    parts.append(contact["title"])
+                if contact.get("phone"):
+                    parts.append(f"📞 {contact['phone']}")
+                if contact.get("email"):
+                    parts.append(f"✉️ {contact['email']}")
+                star = " ⭐" if contact.get("is_primary") else ""
+                st.markdown(" · ".join(parts) + star)
+
+        with st.expander("➕ Add Contact"):
+            with st.form(key=f"add_contact_{selected_lead_id}", clear_on_submit=True):
+                c1, c2 = st.columns(2)
+                with c1:
+                    contact_first = st.text_input("First Name")
+                    contact_title = st.text_input("Title")
+                    contact_phone = st.text_input("Phone")
+                with c2:
+                    contact_last = st.text_input("Last Name")
+                    contact_email = st.text_input("Email")
+                    contact_method = st.selectbox("Preferred Contact Method", config.CONTACT_METHODS)
+                contact_primary = st.checkbox("Primary contact")
+                if st.form_submit_button("Add Contact"):
+                    if contact_first.strip():
+                        insert_contact(
+                            first_name=contact_first.strip(),
+                            last_name=contact_last.strip() or None,
+                            title=contact_title.strip() or None,
+                            email=contact_email.strip() or None,
+                            phone=contact_phone.strip() or None,
+                            preferred_contact_method=contact_method,
+                            is_primary=1 if contact_primary else 0,
+                            lead_id=selected_lead_id,
+                        )
+                        st.success("Contact added!")
+                        st.rerun()
+                    else:
+                        st.error("First name is required.")
+
+        # Activity timeline
+        st.markdown("---")
+        st.markdown("#### 📋 Activity Timeline")
+
+        activities = get_activities_by_lead(selected_lead_id)
+        if not activities.empty and "activity_date" in activities.columns:
+            activities = activities.sort_values("activity_date", ascending=False)
+        if activities.empty:
+            st.caption("No activities logged yet for this lead.")
+        else:
+            for _, activity in activities.iterrows():
+                icon = ACTIVITY_ICONS.get(activity.get("activity_type"), "📝")
+                subject = activity.get("subject") or activity.get("activity_type")
+                date = str(activity.get("activity_date") or "")[:16]
+                logged_by = activity.get("logged_by")
+                header = f"{icon} **{subject}** — {date}"
+                if logged_by:
+                    header += f" · {logged_by}"
+                st.markdown(header)
+                if activity.get("description"):
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;{activity['description']}")
+                if activity.get("outcome"):
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;*Outcome: {activity['outcome']}*")
+
+        with st.expander("➕ Log Activity"):
+            with st.form(key=f"log_activity_{selected_lead_id}", clear_on_submit=True):
+                a1, a2 = st.columns(2)
+                with a1:
+                    activity_type = st.selectbox("Type", config.ACTIVITY_TYPES)
+                    activity_subject = st.text_input("Subject")
+                with a2:
+                    activity_outcome = st.text_input("Outcome")
+                    activity_logged_by = st.text_input("Logged By")
+                activity_description = st.text_area("Description")
+                if st.form_submit_button("Log Activity"):
+                    insert_activity(
+                        activity_type=activity_type,
+                        subject=activity_subject.strip() or None,
+                        description=activity_description.strip() or None,
+                        outcome=activity_outcome.strip() or None,
+                        lead_id=selected_lead_id,
+                        logged_by=activity_logged_by.strip() or None,
+                    )
+                    st.success("Activity logged!")
+                    st.rerun()
+
         # Delete
+        st.markdown("---")
         if st.button("🗑️ Delete This Lead", type="secondary", key=f"delete_{selected_lead_id}"):
             delete_lead(selected_lead_id)
             invalidate()
