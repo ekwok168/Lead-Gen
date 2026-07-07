@@ -7,8 +7,8 @@ import sys
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from database.connection import init_db, seed_core_segments
-from database.models import get_table_counts
+from database.connection import init_db, seed_core_segments, seed_pipeline_stages
+from database.models import get_table_counts, get_pipeline_summary
 from utils.auth import require_auth
 
 # Page configuration
@@ -54,6 +54,7 @@ st.markdown("""
 # Initialize database on first run
 init_db()
 seed_core_segments()
+seed_pipeline_stages()
 
 # Sidebar
 with st.sidebar:
@@ -68,6 +69,20 @@ with st.sidebar:
     st.write(f"👥 Customers: **{counts.get('customers', 0)}**")
     st.write(f"🎯 Leads: **{counts.get('leads', 0)}**")
     st.write(f"📊 Scored: **{counts.get('lead_scores', 0)}**")
+
+    try:
+        pipeline = get_pipeline_summary()
+        if not pipeline.empty:
+            name_col = next(c for c in pipeline.columns if "name" in c.lower())
+            count_col = next(c for c in pipeline.columns if "count" in c.lower())
+            weighted_col = next(c for c in pipeline.columns if "weighted" in c.lower())
+            open_rows = pipeline[~pipeline[name_col].isin(["Closed Won", "Closed Lost"])]
+            st.markdown("---")
+            st.markdown("**Pipeline**")
+            st.write(f"📈 Open Deals: **{int(open_rows[count_col].fillna(0).sum())}**")
+            st.write(f"💰 Weighted: **${open_rows[weighted_col].fillna(0).sum():,.0f}/wk**")
+    except Exception:
+        pass
 
     st.markdown("---")
     st.markdown("**Quick Actions**")
@@ -192,6 +207,7 @@ else:
     - **🗺️ Map View** - Interactive map of all routes and leads
     - **🍽️ Restaurant Finder** - Discover nearby restaurants via OpenStreetMap
     - **👤 Contacts** - Manage contacts and log interactions
+    - **📈 Pipeline** - Track deals through your sales stages
     - **📋 Reports** - Generate and export reports
     - **⚙️ Settings** - Configure scoring weights and segments
     """)
