@@ -188,6 +188,27 @@ CREATE TABLE IF NOT EXISTS deal_stage_history (
     FOREIGN KEY (to_stage_id) REFERENCES pipeline_stages(id)
 );
 
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    contact_id INTEGER,
+    deal_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    task_type TEXT DEFAULT 'Follow-up',
+    priority TEXT DEFAULT 'Medium',
+    status TEXT DEFAULT 'Open',
+    assigned_to TEXT,
+    due_date TEXT,
+    completed_at TIMESTAMP,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (deal_id) REFERENCES deals(id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_customers_route ON customers(route_id);
 CREATE INDEX IF NOT EXISTS idx_customers_location ON customers(latitude, longitude);
@@ -206,3 +227,8 @@ CREATE INDEX IF NOT EXISTS idx_deals_lead ON deals(lead_id);
 CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(stage_id);
 CREATE INDEX IF NOT EXISTS idx_deals_salesperson ON deals(assigned_salesperson);
 CREATE INDEX IF NOT EXISTS idx_deal_history_deal ON deal_stage_history(deal_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_deal ON tasks(deal_id);
