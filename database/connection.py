@@ -45,3 +45,18 @@ def seed_core_segments(db_path=None):
         )
         conn.commit()
     conn.close()
+
+
+def seed_pipeline_stages(db_path=None):
+    """Insert default pipeline stages if the table is empty."""
+    conn = get_connection(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) FROM pipeline_stages")
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany(
+            "INSERT INTO pipeline_stages (name, display_order, probability_pct) "
+            "VALUES (?, ?, ?)",
+            config.DEFAULT_PIPELINE_STAGES,
+        )
+        conn.commit()
+    conn.close()

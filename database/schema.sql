@@ -149,6 +149,45 @@ CREATE TABLE IF NOT EXISTS core_segments (
     priority INTEGER DEFAULT 5
 );
 
+CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    display_order INTEGER NOT NULL,
+    probability_pct INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS deals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    customer_id INTEGER,
+    name TEXT NOT NULL,
+    stage_id INTEGER NOT NULL,
+    expected_weekly_revenue REAL DEFAULT 0,
+    expected_close_date TEXT,
+    assigned_salesperson TEXT,
+    loss_reason TEXT,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (stage_id) REFERENCES pipeline_stages(id)
+);
+
+CREATE TABLE IF NOT EXISTS deal_stage_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id INTEGER NOT NULL,
+    from_stage_id INTEGER,
+    to_stage_id INTEGER NOT NULL,
+    changed_by TEXT,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (deal_id) REFERENCES deals(id),
+    FOREIGN KEY (from_stage_id) REFERENCES pipeline_stages(id),
+    FOREIGN KEY (to_stage_id) REFERENCES pipeline_stages(id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_customers_route ON customers(route_id);
 CREATE INDEX IF NOT EXISTS idx_customers_location ON customers(latitude, longitude);
@@ -163,3 +202,7 @@ CREATE INDEX IF NOT EXISTS idx_contacts_customer ON contacts(customer_id);
 CREATE INDEX IF NOT EXISTS idx_activities_lead ON activities(lead_id);
 CREATE INDEX IF NOT EXISTS idx_activities_contact ON activities(contact_id);
 CREATE INDEX IF NOT EXISTS idx_activities_date ON activities(activity_date);
+CREATE INDEX IF NOT EXISTS idx_deals_lead ON deals(lead_id);
+CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(stage_id);
+CREATE INDEX IF NOT EXISTS idx_deals_salesperson ON deals(assigned_salesperson);
+CREATE INDEX IF NOT EXISTS idx_deal_history_deal ON deal_stage_history(deal_id);

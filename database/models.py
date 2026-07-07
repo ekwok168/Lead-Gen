@@ -669,6 +669,236 @@ def get_recent_activities(limit=20):
 
 
 # ---------------------------------------------------------------------------
+# Pipeline / Deals
+# ---------------------------------------------------------------------------
+
+UPDATABLE_DEAL_FIELDS = {
+    "name", "expected_weekly_revenue", "expected_close_date",
+    "assigned_salesperson", "loss_reason", "notes",
+}
+
+
+def get_pipeline_stages(active_only=True):
+    """Return pipeline stages as a DataFrame ordered by display_order."""
+    conn = get_connection()
+    query = "SELECT * FROM pipeline_stages"
+    if active_only:
+        query += " WHERE is_active = 1"
+    query += " ORDER BY display_order"
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def insert_deal(name, stage_id, lead_id=None, customer_id=None,
+                 expected_weekly_revenue=0, expected_close_date=None,
+                 assigned_salesperson=None, notes=None):
+    """Insert a new deal and return its id.
+
+    If the deal is linked to a lead still in 'New' or 'Contacted' status,
+    the lead is promoted to 'Qualified'. An activity is logged either way.
+    """
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO deals (name, stage_id, lead_id, customer_id,
+               expected_weekly_revenue, expected_close_date, assigned_salesperson, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (name, stage_id, lead_id, customer_id,
+         expected_weekly_revenue, expected_close_date, assigned_salesperson, notes),
+    )
+    conn.commit()
+    deal_id = cursor.lastrowid
+
+    lead_status = None
+    if lead_id is not None:
+        row = conn.execute("SELECT status FROM leads WHERE id = ?", (lead_id,)).fetchone()
+        lead_status = row["status"] if row else None
+    conn.close()
+
+    if lead_status in ("New", "Contacted"):
+        update_lead_field(lead_id, "status", "Qualified")
+
+    insert_activity(
+        activity_type="Status Change",
+        subject=f"Deal created: {name}",
+        lead_id=lead_id,
+    )
+    return deal_id
+
+
+def get_all_deals():
+    """Return all deals with stage, lead/customer names, and days in stage."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT d.*, ps.name as stage_name, ps.probability_pct, ps.display_order,
+               l.name as lead_name, cu.name as customer_name,
+               julianday('now') - julianday(COALESCE(h.last_changed_at, d.created_at))
+                   as days_in_stage
+           FROM deals d
+           JOIN pipeline_stages ps ON d.stage_id = ps.id
+           LEFT JOIN leads l ON d.lead_id = l.id
+           LEFT JOIN customers cu ON d.customer_id = cu.id
+           LEFT JOIN (
+               SELECT deal_id, MAX(changed_at) as last_changed_at
+               FROM deal_stage_history
+               GROUP BY deal_id
+           ) h ON d.id = h.deal_id""",
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_deal(deal_id):
+    """Return a single deal as a dict with its stage name, or None."""
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT d.*, ps.name as stage_name, ps.probability_pct, ps.display_order
+           FROM deals d
+           JOIN pipeline_stages ps ON d.stage_id = ps.id
+           WHERE d.id = ?""",
+        (deal_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_deal(deal_id, **fields):
+    """Update allowlisted fields on a deal."""
+    for field in fields:
+        if field not in UPDATABLE_DEAL_FIELDS:
+            raise ValueError(f"Field not updatable: {field}")
+    if not fields:
+        return
+    set_clause = ", ".join(f"{field} = ?" for field in fields)
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE deals SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (*fields.values(), deal_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_deal_stage(deal_id, new_stage_id, changed_by=None):
+    """Move a deal to a new stage, recording history and syncing lead status."""
+    conn = get_connection()
+    deal = conn.execute("SELECT * FROM deals WHERE id = ?", (deal_id,)).fetchone()
+    if deal is None:
+        conn.close()
+        raise ValueError(f"Deal not found: {deal_id}")
+    stage = conn.execute(
+        "SELECT * FROM pipeline_stages WHERE id = ?", (new_stage_id,)
+    ).fetchone()
+    if stage is None:
+        conn.close()
+        raise ValueError(f"Pipeline stage not found: {new_stage_id}")
+
+    stage_name = stage["name"]
+    lead_id = deal["lead_id"]
+
+    conn.execute(
+        """INSERT INTO deal_stage_history (deal_id, from_stage_id, to_stage_id, changed_by)
+           VALUES (?, ?, ?, ?)""",
+        (deal_id, deal["stage_id"], new_stage_id, changed_by),
+    )
+    if stage_name in ("Closed Won", "Closed Lost"):
+        conn.execute(
+            """UPDATE deals SET stage_id = ?, closed_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+            (new_stage_id, deal_id),
+        )
+    else:
+        conn.execute(
+            "UPDATE deals SET stage_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (new_stage_id, deal_id),
+        )
+    conn.commit()
+    conn.close()
+
+    if lead_id is not None:
+        if stage_name == "Closed Won":
+            update_lead_field(lead_id, "status", "Converted")
+        elif stage_name == "Closed Lost":
+            update_lead_field(lead_id, "status", "Rejected")
+
+    insert_activity(
+        activity_type="Status Change",
+        subject=f"Deal moved to {stage_name}",
+        lead_id=lead_id,
+        logged_by=changed_by,
+    )
+
+
+def get_deal_stage_history(deal_id):
+    """Return stage change history for a deal, oldest first, with stage names."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT h.*, fs.name as from_stage_name, ts.name as to_stage_name
+           FROM deal_stage_history h
+           LEFT JOIN pipeline_stages fs ON h.from_stage_id = fs.id
+           JOIN pipeline_stages ts ON h.to_stage_id = ts.id
+           WHERE h.deal_id = ?
+           ORDER BY h.changed_at, h.id""",
+        conn,
+        params=(deal_id,),
+    )
+    conn.close()
+    return df
+
+
+def get_pipeline_summary():
+    """Return per-stage deal counts and revenue totals for active stages."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT ps.name as stage_name, ps.display_order, ps.probability_pct,
+               COUNT(d.id) as deal_count,
+               COALESCE(SUM(d.expected_weekly_revenue), 0) as total_expected_weekly_revenue,
+               COALESCE(SUM(d.expected_weekly_revenue), 0) * ps.probability_pct / 100.0
+                   as weighted_revenue
+           FROM pipeline_stages ps
+           LEFT JOIN deals d ON d.stage_id = ps.id
+           WHERE ps.is_active = 1
+           GROUP BY ps.id
+           ORDER BY ps.display_order""",
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_won_lost_stats(days=90):
+    """Return win/loss stats for deals closed in the last `days` days."""
+    conn = get_connection()
+    row = conn.execute(
+        """SELECT
+               SUM(CASE WHEN ps.name = 'Closed Won' THEN 1 ELSE 0 END) as won_count,
+               SUM(CASE WHEN ps.name = 'Closed Lost' THEN 1 ELSE 0 END) as lost_count,
+               SUM(CASE WHEN ps.name = 'Closed Won' THEN d.expected_weekly_revenue ELSE 0 END)
+                   as won_revenue
+           FROM deals d
+           JOIN pipeline_stages ps ON d.stage_id = ps.id
+           WHERE d.closed_at IS NOT NULL
+             AND ps.name IN ('Closed Won', 'Closed Lost')
+             AND julianday('now') - julianday(d.closed_at) <= ?""",
+        (days,),
+    ).fetchone()
+    conn.close()
+
+    won_count = row["won_count"] or 0
+    lost_count = row["lost_count"] or 0
+    won_revenue = row["won_revenue"] or 0
+    total_closed = won_count + lost_count
+    return {
+        "won_count": won_count,
+        "lost_count": lost_count,
+        "win_rate": (won_count / total_closed) if total_closed else 0,
+        "won_revenue": won_revenue,
+        "avg_deal_size": (won_revenue / won_count) if won_count else 0,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
@@ -677,7 +907,8 @@ def get_table_counts():
     conn = get_connection()
     counts = {}
     for table in ["distribution_centers", "routes", "customers", "leads", "lead_scores",
-                  "route_stops", "contacts", "activities"]:
+                  "route_stops", "contacts", "activities", "pipeline_stages", "deals",
+                  "deal_stage_history"]:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         counts[table] = row[0]
     conn.close()
@@ -687,7 +918,8 @@ def get_table_counts():
 def clear_all_data():
     """Clear all data from all tables."""
     conn = get_connection()
-    for table in ["activities", "contacts", "lead_scores", "route_stops", "leads",
+    for table in ["deal_stage_history", "deals", "pipeline_stages", "activities",
+                  "contacts", "lead_scores", "route_stops", "leads",
                   "customers", "routes", "distribution_centers", "core_segments"]:
         conn.execute(f"DELETE FROM {table}")
     conn.commit()

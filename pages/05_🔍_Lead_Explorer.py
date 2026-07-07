@@ -14,6 +14,7 @@ from database.models import (
     update_lead_notes, delete_lead,
     get_contacts_by_lead, insert_contact,
     get_activities_by_lead, insert_activity,
+    get_pipeline_stages, insert_deal, get_all_deals,
 )
 from scoring.engine import generate_why_text
 from utils.auth import require_auth
@@ -234,6 +235,77 @@ if not filtered.empty:
                 update_lead_notes(selected_lead_id, new_notes)
                 invalidate()
                 st.success("Notes saved!")
+
+        # Deal
+        st.markdown("---")
+        st.markdown("#### 💼 Deal")
+
+        deals = get_all_deals()
+        stage_col = None
+        open_deals = pd.DataFrame()
+        if not deals.empty and "lead_id" in deals.columns:
+            stage_col = next((c for c in ["stage_name", "name_stage", "stage"] if c in deals.columns), None)
+            lead_deals = deals[deals["lead_id"] == selected_lead_id]
+            if not lead_deals.empty and stage_col:
+                open_deals = lead_deals[~lead_deals[stage_col].isin(["Closed Won", "Closed Lost"])]
+            else:
+                open_deals = lead_deals
+
+        if not open_deals.empty:
+            for _, deal in open_deals.iterrows():
+                deal_name = deal.get("name")
+                parts = [f"**{deal_name if pd.notna(deal_name) else 'Deal'}**"]
+                if stage_col and pd.notna(deal.get(stage_col)):
+                    parts.append(str(deal[stage_col]))
+                deal_rev = deal.get("expected_weekly_revenue", 0)
+                parts.append(f"${deal_rev if pd.notna(deal_rev) else 0:,.0f}/wk")
+                st.markdown("💼 " + " · ".join(parts))
+            st.caption("Manage this deal on the **Pipeline** page.")
+        else:
+            with st.expander("➕ Create Deal from this Lead"):
+                stages = get_pipeline_stages()
+                if stages.empty:
+                    st.warning("No pipeline stages configured. Set up stages on the Pipeline page first.")
+                else:
+                    stage_names = stages["name"].tolist()
+                    lead_name = lead.get("name")
+                    lead_name = str(lead_name) if pd.notna(lead_name) else "Lead"
+                    lead_rev = lead.get("estimated_weekly_revenue", 0)
+                    default_rev = float(lead_rev) if pd.notna(lead_rev) else 0.0
+                    lead_assign = lead.get("assigned_salesperson", "")
+                    default_assign = str(lead_assign) if pd.notna(lead_assign) and lead_assign else ""
+                    with st.form(key=f"create_deal_{selected_lead_id}", clear_on_submit=True):
+                        d1, d2 = st.columns(2)
+                        with d1:
+                            deal_name = st.text_input("Deal Name", value=f"{lead_name} - New Business")
+                            deal_stage = st.selectbox(
+                                "Initial Stage",
+                                stage_names,
+                                index=stage_names.index("Prospect") if "Prospect" in stage_names else 0,
+                            )
+                        with d2:
+                            deal_revenue = st.number_input(
+                                "Expected Weekly Revenue ($)",
+                                min_value=0.0, value=default_rev, step=50.0,
+                            )
+                            deal_salesperson = st.text_input("Salesperson", value=default_assign)
+                        deal_notes = st.text_area("Notes", key=f"deal_notes_{selected_lead_id}")
+                        if st.form_submit_button("Create Deal"):
+                            if deal_name.strip():
+                                stage_id = int(stages.loc[stages["name"] == deal_stage, "id"].iloc[0])
+                                insert_deal(
+                                    name=deal_name.strip(),
+                                    stage_id=stage_id,
+                                    lead_id=selected_lead_id,
+                                    expected_weekly_revenue=deal_revenue,
+                                    assigned_salesperson=deal_salesperson.strip() or None,
+                                    notes=deal_notes.strip() or None,
+                                )
+                                invalidate()
+                                st.success("Deal created! Track it on the **Pipeline** page.")
+                                st.rerun()
+                            else:
+                                st.error("Deal name is required.")
 
         # Contacts
         st.markdown("---")
