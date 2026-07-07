@@ -1,5 +1,6 @@
 """Lead Explorer page - Search, filter, and manage individual leads."""
 
+import datetime
 import streamlit as st
 import plotly.graph_objects as go
 import pandas as pd
@@ -15,6 +16,7 @@ from database.models import (
     get_contacts_by_lead, insert_contact,
     get_activities_by_lead, insert_activity,
     get_pipeline_stages, insert_deal, get_all_deals,
+    get_tasks_by_lead, insert_task, update_task_status,
 )
 from scoring.engine import generate_why_text
 from utils.auth import require_auth
@@ -27,6 +29,13 @@ ACTIVITY_ICONS = {
     "Meeting": "🤝",
     "Note": "📝",
     "Status Change": "🔄",
+}
+
+PRIORITY_ICONS = {
+    "Urgent": "🔴",
+    "High": "🟠",
+    "Medium": "🟡",
+    "Low": "⚪",
 }
 
 init_db()
@@ -403,6 +412,77 @@ if not filtered.empty:
                     )
                     st.success("Activity logged!")
                     st.rerun()
+
+        # Tasks
+        st.markdown("---")
+        st.markdown("#### ✅ Tasks")
+
+        tasks = get_tasks_by_lead(selected_lead_id)
+        if tasks.empty:
+            st.caption("No open tasks for this lead.")
+        else:
+            today = datetime.date.today()
+            for _, task in tasks.iterrows():
+                task_id = int(task["id"])
+                t1, t2, t3, t4 = st.columns([1, 4, 2, 2])
+                with t1:
+                    if st.checkbox("Done", key=f"task_done_{selected_lead_id}_{task_id}"):
+                        update_task_status(task_id, "Completed")
+                        st.rerun()
+                with t2:
+                    icon = PRIORITY_ICONS.get(task.get("priority"), "⚪")
+                    title = task.get("title")
+                    title = str(title) if pd.notna(title) else "Untitled task"
+                    task_type = task.get("task_type")
+                    line = f"{icon} **{title}**"
+                    if pd.notna(task_type):
+                        line += f" · {task_type}"
+                    st.markdown(line)
+                with t3:
+                    due = task.get("due_date")
+                    due_dt = pd.to_datetime(due, errors="coerce") if pd.notna(due) else pd.NaT
+                    if pd.notna(due_dt):
+                        due_str = due_dt.strftime("%Y-%m-%d")
+                        if due_dt.date() < today:
+                            st.markdown(f":red[Due {due_str}]")
+                        else:
+                            st.markdown(f"Due {due_str}")
+                with t4:
+                    assigned = task.get("assigned_to")
+                    if pd.notna(assigned) and assigned:
+                        st.caption(str(assigned))
+
+        with st.expander("➕ Add Task"):
+            with st.form(key=f"add_task_{selected_lead_id}", clear_on_submit=True):
+                k1, k2 = st.columns(2)
+                with k1:
+                    task_title = st.text_input("Title *")
+                    task_type = st.selectbox("Type", config.TASK_TYPES)
+                    task_assigned = st.text_input("Assigned To")
+                with k2:
+                    task_priority = st.selectbox(
+                        "Priority",
+                        config.TASK_PRIORITIES,
+                        index=config.TASK_PRIORITIES.index("Medium") if "Medium" in config.TASK_PRIORITIES else 0,
+                    )
+                    task_due = st.date_input("Due Date", value=datetime.date.today())
+                    task_no_due = st.checkbox("No due date")
+                task_description = st.text_area("Description")
+                if st.form_submit_button("Add Task"):
+                    if task_title.strip():
+                        insert_task(
+                            title=task_title.strip(),
+                            description=task_description.strip() or None,
+                            task_type=task_type,
+                            priority=task_priority,
+                            assigned_to=task_assigned.strip() or None,
+                            due_date=None if task_no_due or not task_due else task_due.isoformat(),
+                            lead_id=selected_lead_id,
+                        )
+                        st.success("Task added!")
+                        st.rerun()
+                    else:
+                        st.error("Title is required.")
 
         # Delete
         st.markdown("---")

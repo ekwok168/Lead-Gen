@@ -16,6 +16,7 @@ from database.models import (
     get_pipeline_stages, insert_deal, get_all_deals, get_deal,
     update_deal, update_deal_stage, get_deal_stage_history,
     get_pipeline_summary, get_won_lost_stats,
+    count_open_tasks_by_deal,
 )
 from utils.auth import require_auth
 from utils.cached import invalidate
@@ -130,6 +131,21 @@ st.markdown("### Deal Board")
 if deals.empty:
     st.info("No deals yet. Use **➕ Create Deal** below to add your first one.")
 else:
+    open_task_counts = {}
+    try:
+        task_counts_df = count_open_tasks_by_deal()
+        if task_counts_df is not None and not task_counts_df.empty and "deal_id" in task_counts_df.columns:
+            count_col = next(
+                (c for c in task_counts_df.columns if c != "deal_id" and "count" in c.lower()),
+                None,
+            ) or next((c for c in task_counts_df.columns if c != "deal_id"), None)
+            if count_col:
+                for _, tc in task_counts_df.iterrows():
+                    if pd.notna(tc["deal_id"]) and pd.notna(tc[count_col]):
+                        open_task_counts[int(tc["deal_id"])] = int(tc[count_col])
+    except Exception:
+        open_task_counts = {}
+
     board_cols = st.columns(len(open_stages))
     for col, (_, stage) in zip(board_cols, open_stages.iterrows()):
         stage_name = stage["name"]
@@ -152,6 +168,9 @@ else:
                     salesperson = deal.get("assigned_salesperson")
                     if salesperson is not None and pd.notna(salesperson):
                         st.caption(salesperson)
+                    task_count = open_task_counts.get(deal_id, 0)
+                    if task_count > 0:
+                        st.caption(f"✅ {task_count} open task(s)")
 
                     current_stage_id = name_to_stage_id.get(stage_name)
                     move_to = st.selectbox(

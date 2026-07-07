@@ -899,6 +899,184 @@ def get_won_lost_stats(days=90):
 
 
 # ---------------------------------------------------------------------------
+# Tasks
+# ---------------------------------------------------------------------------
+
+UPDATABLE_TASK_FIELDS = {
+    "title", "description", "task_type", "priority", "status",
+    "assigned_to", "due_date",
+}
+
+_TASK_SELECT = """SELECT t.*, l.name as lead_name,
+       co.first_name as contact_first_name, co.last_name as contact_last_name,
+       d.name as deal_name
+   FROM tasks t
+   LEFT JOIN leads l ON t.lead_id = l.id
+   LEFT JOIN contacts co ON t.contact_id = co.id
+   LEFT JOIN deals d ON t.deal_id = d.id"""
+
+_TASK_OPEN_FILTER = "t.status NOT IN ('Completed', 'Cancelled')"
+
+_TASK_ORDER = """ORDER BY t.due_date IS NULL, t.due_date ASC,
+       CASE t.priority
+           WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1
+           WHEN 'Medium' THEN 2 ELSE 3
+       END"""
+
+
+def insert_task(title, description=None, task_type="Follow-up", priority="Medium",
+                 assigned_to=None, due_date=None, lead_id=None, contact_id=None,
+                 deal_id=None, created_by=None):
+    """Insert a new task and return its id (due_date is 'YYYY-MM-DD' or None)."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO tasks (title, description, task_type, priority, assigned_to,
+               due_date, lead_id, contact_id, deal_id, created_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (title, description, task_type, priority, assigned_to,
+         due_date, lead_id, contact_id, deal_id, created_by),
+    )
+    conn.commit()
+    task_id = cursor.lastrowid
+    conn.close()
+    return task_id
+
+
+def get_task(task_id):
+    """Return a single task as a dict, or None."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_all_tasks(include_completed=False):
+    """Return all tasks with lead/contact/deal display names."""
+    query = _TASK_SELECT
+    if not include_completed:
+        query += f" WHERE {_TASK_OPEN_FILTER}"
+    query += f" {_TASK_ORDER}"
+    conn = get_connection()
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def get_tasks_by_lead(lead_id, include_completed=False):
+    """Return tasks for a lead."""
+    query = f"{_TASK_SELECT} WHERE t.lead_id = ?"
+    if not include_completed:
+        query += f" AND {_TASK_OPEN_FILTER}"
+    query += f" {_TASK_ORDER}"
+    conn = get_connection()
+    df = pd.read_sql_query(query, conn, params=(lead_id,))
+    conn.close()
+    return df
+
+
+def get_tasks_by_deal(deal_id, include_completed=False):
+    """Return tasks for a deal."""
+    query = f"{_TASK_SELECT} WHERE t.deal_id = ?"
+    if not include_completed:
+        query += f" AND {_TASK_OPEN_FILTER}"
+    query += f" {_TASK_ORDER}"
+    conn = get_connection()
+    df = pd.read_sql_query(query, conn, params=(deal_id,))
+    conn.close()
+    return df
+
+
+def get_overdue_tasks():
+    """Return open tasks whose due date has passed."""
+    query = (f"{_TASK_SELECT} WHERE t.due_date < date('now') "
+             f"AND {_TASK_OPEN_FILTER} {_TASK_ORDER}")
+    conn = get_connection()
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def get_tasks_due_today():
+    """Return open tasks due today."""
+    query = (f"{_TASK_SELECT} WHERE t.due_date = date('now') "
+             f"AND {_TASK_OPEN_FILTER} {_TASK_ORDER}")
+    conn = get_connection()
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def get_tasks_due_this_week():
+    """Return open tasks due within the next 7 days (including today)."""
+    query = (f"{_TASK_SELECT} "
+             f"WHERE t.due_date BETWEEN date('now') AND date('now', '+7 days') "
+             f"AND {_TASK_OPEN_FILTER} {_TASK_ORDER}")
+    conn = get_connection()
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+
+def count_open_tasks_by_deal():
+    """Return open task counts grouped by deal (for kanban badges)."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT deal_id, COUNT(*) as open_task_count
+           FROM tasks
+           WHERE deal_id IS NOT NULL
+             AND status NOT IN ('Completed', 'Cancelled')
+           GROUP BY deal_id""",
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def update_task_status(task_id, status):
+    """Update a task's status, stamping/clearing completed_at as appropriate."""
+    conn = get_connection()
+    if status == "Completed":
+        conn.execute(
+            """UPDATE tasks SET status = ?, completed_at = CURRENT_TIMESTAMP,
+                   updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+            (status, task_id),
+        )
+    else:
+        conn.execute(
+            """UPDATE tasks SET status = ?, completed_at = NULL,
+                   updated_at = CURRENT_TIMESTAMP WHERE id = ?""",
+            (status, task_id),
+        )
+    conn.commit()
+    conn.close()
+
+
+def update_task(task_id, **fields):
+    """Update allowlisted fields on a task."""
+    for field in fields:
+        if field not in UPDATABLE_TASK_FIELDS:
+            raise ValueError(f"Field not updatable: {field}")
+    if not fields:
+        return
+    set_clause = ", ".join(f"{field} = ?" for field in fields)
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE tasks SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (*fields.values(), task_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_task(task_id):
+    """Delete a task."""
+    conn = get_connection()
+    conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
@@ -908,7 +1086,7 @@ def get_table_counts():
     counts = {}
     for table in ["distribution_centers", "routes", "customers", "leads", "lead_scores",
                   "route_stops", "contacts", "activities", "pipeline_stages", "deals",
-                  "deal_stage_history"]:
+                  "deal_stage_history", "tasks"]:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         counts[table] = row[0]
     conn.close()
@@ -918,7 +1096,7 @@ def get_table_counts():
 def clear_all_data():
     """Clear all data from all tables."""
     conn = get_connection()
-    for table in ["deal_stage_history", "deals", "pipeline_stages", "activities",
+    for table in ["tasks", "deal_stage_history", "deals", "pipeline_stages", "activities",
                   "contacts", "lead_scores", "route_stops", "leads",
                   "customers", "routes", "distribution_centers", "core_segments"]:
         conn.execute(f"DELETE FROM {table}")
