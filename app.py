@@ -8,7 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(__file__))
 
 from database.connection import init_db, seed_core_segments, seed_pipeline_stages
-from database.models import get_table_counts, get_pipeline_summary
+from database.models import get_table_counts, get_pipeline_summary, get_overdue_tasks
 from utils.auth import require_auth
 
 # Page configuration
@@ -81,6 +81,13 @@ with st.sidebar:
             st.markdown("**Pipeline**")
             st.write(f"📈 Open Deals: **{int(open_rows[count_col].fillna(0).sum())}**")
             st.write(f"💰 Weighted: **${open_rows[weighted_col].fillna(0).sum():,.0f}/wk**")
+    except Exception:
+        pass
+
+    try:
+        n_overdue = len(get_overdue_tasks())
+        if n_overdue:
+            st.warning(f"⏰ {n_overdue} overdue task(s)")
     except Exception:
         pass
 
@@ -208,6 +215,7 @@ else:
     - **🍽️ Restaurant Finder** - Discover nearby restaurants via OpenStreetMap
     - **👤 Contacts** - Manage contacts and log interactions
     - **📈 Pipeline** - Track deals through your sales stages
+    - **✅ Tasks** - Follow-ups and to-dos with due dates
     - **📋 Reports** - Generate and export reports
     - **⚙️ Settings** - Configure scoring weights and segments
     """)
