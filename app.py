@@ -7,7 +7,7 @@ import sys
 # Ensure project root is on path
 sys.path.insert(0, os.path.dirname(__file__))
 
-from database.connection import init_db, seed_core_segments, seed_pipeline_stages
+from database.connection import init_db, seed_core_segments, seed_pipeline_stages, seed_communication_templates
 from database.models import get_table_counts, get_pipeline_summary, get_overdue_tasks
 from utils.auth import require_auth
 
@@ -55,6 +55,7 @@ st.markdown("""
 init_db()
 seed_core_segments()
 seed_pipeline_stages()
+seed_communication_templates()
 
 # Sidebar
 with st.sidebar:
@@ -216,6 +217,7 @@ else:
     - **👤 Contacts** - Manage contacts and log interactions
     - **📈 Pipeline** - Track deals through your sales stages
     - **✅ Tasks** - Follow-ups and to-dos with due dates
+    - **✉️ Communications** - Email templates and call logging
     - **📋 Reports** - Generate and export reports
     - **⚙️ Settings** - Configure scoring weights and segments
     """)

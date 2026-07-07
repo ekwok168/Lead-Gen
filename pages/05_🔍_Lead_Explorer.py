@@ -245,6 +245,8 @@ if not filtered.empty:
                 invalidate()
                 st.success("Notes saved!")
 
+        st.caption("✉️ Compose an email from the Communications page")
+
         # Deal
         st.markdown("---")
         st.markdown("#### 💼 Deal")
