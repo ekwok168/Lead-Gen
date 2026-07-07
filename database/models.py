@@ -500,6 +500,175 @@ def set_setting(key, value):
 
 
 # ---------------------------------------------------------------------------
+# Contacts
+# ---------------------------------------------------------------------------
+
+UPDATABLE_CONTACT_FIELDS = {
+    "first_name", "last_name", "title", "email", "phone", "mobile_phone",
+    "preferred_contact_method", "is_primary", "notes",
+}
+
+
+def insert_contact(first_name, last_name=None, title=None, email=None, phone=None,
+                    mobile_phone=None, preferred_contact_method="Phone", is_primary=0,
+                    notes=None, lead_id=None, customer_id=None):
+    """Insert a new contact and return its id."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO contacts (first_name, last_name, title, email, phone, mobile_phone,
+               preferred_contact_method, is_primary, notes, lead_id, customer_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (first_name, last_name, title, email, phone, mobile_phone,
+         preferred_contact_method, is_primary, notes, lead_id, customer_id),
+    )
+    conn.commit()
+    contact_id = cursor.lastrowid
+    conn.close()
+    return contact_id
+
+
+def get_contacts_by_lead(lead_id):
+    """Return all contacts for a lead."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        "SELECT * FROM contacts WHERE lead_id = ? ORDER BY is_primary DESC, id",
+        conn,
+        params=(lead_id,),
+    )
+    conn.close()
+    return df
+
+
+def get_contacts_by_customer(customer_id):
+    """Return all contacts for a customer."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        "SELECT * FROM contacts WHERE customer_id = ? ORDER BY is_primary DESC, id",
+        conn,
+        params=(customer_id,),
+    )
+    conn.close()
+    return df
+
+
+def get_all_contacts():
+    """Return all contacts with associated lead/customer names."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT co.*, l.name as lead_name, cu.name as customer_name
+           FROM contacts co
+           LEFT JOIN leads l ON co.lead_id = l.id
+           LEFT JOIN customers cu ON co.customer_id = cu.id""",
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def get_contact(contact_id):
+    """Return a single contact as a dict."""
+    conn = get_connection()
+    row = conn.execute("SELECT * FROM contacts WHERE id = ?", (contact_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_contact(contact_id, **fields):
+    """Update allowlisted fields on a contact."""
+    for field in fields:
+        if field not in UPDATABLE_CONTACT_FIELDS:
+            raise ValueError(f"Field not updatable: {field}")
+    if not fields:
+        return
+    set_clause = ", ".join(f"{field} = ?" for field in fields)
+    conn = get_connection()
+    conn.execute(
+        f"UPDATE contacts SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        (*fields.values(), contact_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def delete_contact(contact_id):
+    """Delete a contact and its activities."""
+    conn = get_connection()
+    conn.execute("DELETE FROM activities WHERE contact_id = ?", (contact_id,))
+    conn.execute("DELETE FROM contacts WHERE id = ?", (contact_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Activities
+# ---------------------------------------------------------------------------
+
+def insert_activity(activity_type, subject=None, description=None, outcome=None,
+                     contact_id=None, lead_id=None, customer_id=None, logged_by=None):
+    """Insert a new activity and return its id."""
+    conn = get_connection()
+    cursor = conn.execute(
+        """INSERT INTO activities (activity_type, subject, description, outcome,
+               contact_id, lead_id, customer_id, logged_by)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (activity_type, subject, description, outcome,
+         contact_id, lead_id, customer_id, logged_by),
+    )
+    conn.commit()
+    activity_id = cursor.lastrowid
+    conn.close()
+    return activity_id
+
+
+def get_activities_by_lead(lead_id, limit=50):
+    """Return recent activities for a lead, newest first."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT a.*, co.first_name as contact_first_name, co.last_name as contact_last_name
+           FROM activities a
+           LEFT JOIN contacts co ON a.contact_id = co.id
+           WHERE a.lead_id = ?
+           ORDER BY a.activity_date DESC
+           LIMIT ?""",
+        conn,
+        params=(lead_id, limit),
+    )
+    conn.close()
+    return df
+
+
+def get_activities_by_contact(contact_id, limit=50):
+    """Return recent activities for a contact, newest first."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT * FROM activities WHERE contact_id = ?
+           ORDER BY activity_date DESC LIMIT ?""",
+        conn,
+        params=(contact_id, limit),
+    )
+    conn.close()
+    return df
+
+
+def get_recent_activities(limit=20):
+    """Return the most recent activities with lead/contact display names."""
+    conn = get_connection()
+    df = pd.read_sql_query(
+        """SELECT a.*, l.name as lead_name,
+               co.first_name as contact_first_name, co.last_name as contact_last_name
+           FROM activities a
+           LEFT JOIN leads l ON a.lead_id = l.id
+           LEFT JOIN contacts co ON a.contact_id = co.id
+           ORDER BY a.activity_date DESC
+           LIMIT ?""",
+        conn,
+        params=(limit,),
+    )
+    conn.close()
+    return df
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
@@ -507,7 +676,8 @@ def get_table_counts():
     """Return row counts for all main tables."""
     conn = get_connection()
     counts = {}
-    for table in ["distribution_centers", "routes", "customers", "leads", "lead_scores", "route_stops"]:
+    for table in ["distribution_centers", "routes", "customers", "leads", "lead_scores",
+                  "route_stops", "contacts", "activities"]:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         counts[table] = row[0]
     conn.close()
@@ -517,7 +687,8 @@ def get_table_counts():
 def clear_all_data():
     """Clear all data from all tables."""
     conn = get_connection()
-    for table in ["lead_scores", "route_stops", "leads", "customers", "routes", "distribution_centers", "core_segments"]:
+    for table in ["activities", "contacts", "lead_scores", "route_stops", "leads",
+                  "customers", "routes", "distribution_centers", "core_segments"]:
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
     conn.close()

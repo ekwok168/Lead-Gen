@@ -105,6 +105,42 @@ CREATE TABLE IF NOT EXISTS app_settings (
     value TEXT
 );
 
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    customer_id INTEGER,
+    first_name TEXT NOT NULL,
+    last_name TEXT,
+    title TEXT,
+    email TEXT,
+    phone TEXT,
+    mobile_phone TEXT,
+    preferred_contact_method TEXT DEFAULT 'Phone',
+    is_primary INTEGER DEFAULT 0,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER,
+    lead_id INTEGER,
+    customer_id INTEGER,
+    activity_type TEXT NOT NULL,
+    subject TEXT,
+    description TEXT,
+    outcome TEXT,
+    activity_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    logged_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
 CREATE TABLE IF NOT EXISTS core_segments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     segment_name TEXT NOT NULL,
@@ -122,3 +158,8 @@ CREATE INDEX IF NOT EXISTS idx_lead_scores_lead ON lead_scores(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_scores_route ON lead_scores(nearest_route_id);
 CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops(route_id);
 CREATE INDEX IF NOT EXISTS idx_routes_dc ON routes(dc_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_lead ON contacts(lead_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_customer ON contacts(customer_id);
+CREATE INDEX IF NOT EXISTS idx_activities_lead ON activities(lead_id);
+CREATE INDEX IF NOT EXISTS idx_activities_contact ON activities(contact_id);
+CREATE INDEX IF NOT EXISTS idx_activities_date ON activities(activity_date);
