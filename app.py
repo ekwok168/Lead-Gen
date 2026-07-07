@@ -190,6 +190,7 @@ else:
     - **🚛 Route View** - Route level analysis with maps
     - **🔍 Lead Explorer** - Search and filter individual leads
     - **🗺️ Map View** - Interactive map of all routes and leads
+    - **🍽️ Restaurant Finder** - Discover nearby restaurants via OpenStreetMap
     - **📋 Reports** - Generate and export reports
     - **⚙️ Settings** - Configure scoring weights and segments
     """)
