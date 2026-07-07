@@ -191,6 +191,7 @@ else:
     - **🔍 Lead Explorer** - Search and filter individual leads
     - **🗺️ Map View** - Interactive map of all routes and leads
     - **🍽️ Restaurant Finder** - Discover nearby restaurants via OpenStreetMap
+    - **👤 Contacts** - Manage contacts and log interactions
     - **📋 Reports** - Generate and export reports
     - **⚙️ Settings** - Configure scoring weights and segments
     """)

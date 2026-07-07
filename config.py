@@ -123,3 +123,7 @@ AMENITY_BUSINESS_TYPE_MAP = {
     "bar": ("Bar", "Entertainment"),
     "pub": ("Bar", "Entertainment"),
 }
+
+# CRM: contacts & activities
+ACTIVITY_TYPES = ["Call", "Email", "Meeting", "Note", "Status Change"]
+CONTACT_METHODS = ["Phone", "Email", "In Person", "Text"]
