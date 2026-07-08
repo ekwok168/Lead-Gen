@@ -1,6 +1,15 @@
 """Segment scoring - measures how well a lead matches core customer segments."""
 
+import pandas as pd
+
 import config
+
+
+def _normalize(value):
+    """Return a lowercase string, treating None/NaN as empty."""
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return ""
+    return str(value).lower()
 
 
 def score_segment(lead_business_type, lead_segment, core_segments_df):
@@ -26,7 +35,7 @@ def score_segment(lead_business_type, lead_segment, core_segments_df):
 
     # Check for exact segment match
     exact = core_segments_df[
-        core_segments_df["segment_name"].str.lower() == (lead_segment or "").lower()
+        core_segments_df["segment_name"].str.lower() == _normalize(lead_segment)
     ]
     if not exact.empty:
         return {
@@ -37,7 +46,7 @@ def score_segment(lead_business_type, lead_segment, core_segments_df):
 
     # Check for business type match (segment differs but type matches)
     type_match = core_segments_df[
-        core_segments_df["business_type"].str.lower() == (lead_business_type or "").lower()
+        core_segments_df["business_type"].str.lower() == _normalize(lead_business_type)
     ]
     if not type_match.empty:
         return {
@@ -72,11 +81,12 @@ def check_core_segment_revenue(lead_segment, estimated_revenue, core_segments_df
     Only called when segment already matches. Returns True if revenue
     meets or exceeds the minimum for that segment.
     """
+    lead_segment = _normalize(lead_segment)
     if core_segments_df.empty or not lead_segment:
         return False
 
     match = core_segments_df[
-        core_segments_df["segment_name"].str.lower() == lead_segment.lower()
+        core_segments_df["segment_name"].str.lower() == lead_segment
     ]
     if match.empty:
         return False

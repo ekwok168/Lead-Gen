@@ -5,6 +5,35 @@ from folium.plugins import MarkerCluster
 import pandas as pd
 import numpy as np
 
+from config import MAP_DEFAULT_ZOOM, MAP_TILE_STYLE
+
+DEFAULT_CENTER = [39.7392, -104.9903]  # Denver
+
+
+def _valid_coords(df):
+    """Drop rows with missing or ungeocoded (0, 0) coordinates."""
+    if df is None:
+        return pd.DataFrame()
+    if df.empty or "latitude" not in df.columns or "longitude" not in df.columns:
+        return df
+    lat = df["latitude"]
+    lon = df["longitude"]
+    mask = lat.notna() & lon.notna() & ~((lat.abs() <= 0.01) & (lon.abs() <= 0.01))
+    return df[mask]
+
+
+def _compute_center(*dfs):
+    """Mean center of all valid coordinates, falling back to Denver."""
+    all_lats = []
+    all_lons = []
+    for df in dfs:
+        if df is not None and not df.empty and "latitude" in df.columns:
+            all_lats.extend(df["latitude"].tolist())
+            all_lons.extend(df["longitude"].tolist())
+    if not all_lats:
+        return DEFAULT_CENTER
+    return [np.mean(all_lats), np.mean(all_lons)]
+
 # Grade-based marker colors
 GRADE_COLORS = {
     "A": "red",
@@ -37,23 +66,13 @@ def create_route_map(route_data, customers_df, stops_df, leads_df, dc_info=None,
     Shows route path, numbered stops, customers, and color-coded prospects
     with connector lines to nearest stops.
     """
-    # Determine map center
-    all_lats = []
-    all_lons = []
+    customers_df = _valid_coords(customers_df)
+    stops_df = _valid_coords(stops_df)
+    leads_df = _valid_coords(leads_df)
 
-    if not stops_df.empty:
-        all_lats.extend(stops_df["latitude"].tolist())
-        all_lons.extend(stops_df["longitude"].tolist())
-    if not leads_df.empty:
-        all_lats.extend(leads_df["latitude"].tolist())
-        all_lons.extend(leads_df["longitude"].tolist())
+    center = _compute_center(stops_df, leads_df)
 
-    if not all_lats:
-        center = [39.7392, -104.9903]  # Denver default
-    else:
-        center = [np.mean(all_lats), np.mean(all_lons)]
-
-    m = folium.Map(location=center, zoom_start=13, tiles="OpenStreetMap")
+    m = folium.Map(location=center, zoom_start=MAP_DEFAULT_ZOOM + 2, tiles=MAP_TILE_STYLE)
 
     # --- DC marker ---
     if dc_info:
@@ -183,8 +202,12 @@ def create_route_map(route_data, customers_df, stops_df, leads_df, dc_info=None,
 
 def create_dc_map(dc_info, routes_df, customers_df, stops_df, leads_df):
     """Create an overview map for a distribution center showing all routes."""
+    customers_df = _valid_coords(customers_df)
+    stops_df = _valid_coords(stops_df)
+    leads_df = _valid_coords(leads_df)
+
     center = [dc_info["latitude"], dc_info["longitude"]]
-    m = folium.Map(location=center, zoom_start=11, tiles="OpenStreetMap")
+    m = folium.Map(location=center, zoom_start=MAP_DEFAULT_ZOOM, tiles=MAP_TILE_STYLE)
 
     # DC marker
     folium.Marker(
@@ -245,20 +268,13 @@ def create_dc_map(dc_info, routes_df, customers_df, stops_df, leads_df):
 
 def create_full_map(dcs_df, routes_df, customers_df, stops_df, leads_df):
     """Create a full overview map with all DCs, routes, and leads."""
-    # Center on mean of all coordinates
-    all_lats = []
-    all_lons = []
-    for df in [dcs_df, customers_df, leads_df]:
-        if not df.empty and "latitude" in df.columns:
-            all_lats.extend(df["latitude"].tolist())
-            all_lons.extend(df["longitude"].tolist())
+    customers_df = _valid_coords(customers_df)
+    stops_df = _valid_coords(stops_df)
+    leads_df = _valid_coords(leads_df)
 
-    if all_lats:
-        center = [np.mean(all_lats), np.mean(all_lons)]
-    else:
-        center = [39.7392, -104.9903]
+    center = _compute_center(dcs_df, customers_df, leads_df)
 
-    m = folium.Map(location=center, zoom_start=10, tiles="OpenStreetMap")
+    m = folium.Map(location=center, zoom_start=MAP_DEFAULT_ZOOM - 1, tiles=MAP_TILE_STYLE)
 
     # DC markers
     if not dcs_df.empty:

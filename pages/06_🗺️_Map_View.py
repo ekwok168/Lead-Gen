@@ -10,13 +10,16 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database.connection import init_db
 from database.models import (
     get_all_dcs, get_all_routes, get_all_customers,
-    get_all_stops, get_leads_with_scores,
+    get_all_stops,
 )
 from maps.visualizations import create_full_map
+from utils.auth import require_auth
+from utils.cached import leads_with_scores
 
 init_db()
 
 st.set_page_config(page_title="Map View", page_icon="🗺️", layout="wide")
+require_auth()
 st.title("🗺️ Interactive Map")
 st.markdown("View all distribution centers, delivery routes, existing customers, and prospects on one map")
 
@@ -42,7 +45,7 @@ with col4:
 routes = get_all_routes() if show_routes else pd.DataFrame()
 customers = get_all_customers() if show_customers else pd.DataFrame()
 stops = get_all_stops() if show_routes else pd.DataFrame()
-scored = get_leads_with_scores() if show_leads else pd.DataFrame()
+scored = leads_with_scores() if show_leads else pd.DataFrame()
 
 # Filter leads by grade
 if not scored.empty and lead_grades and "score_grade" in scored.columns:

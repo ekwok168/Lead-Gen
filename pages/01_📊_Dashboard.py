@@ -12,12 +12,15 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from database.connection import init_db
 from database.models import (
     get_table_counts, get_all_dcs, get_all_routes, get_all_customers,
-    get_leads_with_scores,
+    get_recent_activities,
 )
+from utils.auth import require_auth
+from utils.cached import leads_with_scores
 
 init_db()
 
 st.set_page_config(page_title="Dashboard", page_icon="📊", layout="wide")
+require_auth()
 st.title("📊 Dashboard")
 
 counts = get_table_counts()
@@ -39,8 +42,16 @@ with col4:
 with col5:
     st.metric("Scored Leads", counts.get("lead_scores", 0))
 
+try:
+    from reports.analytics import compute_pipeline_forecast
+
+    weighted_total = float((compute_pipeline_forecast() or {}).get("weighted_total") or 0)
+    st.metric("Weighted Pipeline", f"${weighted_total:,.0f}/wk")
+except Exception:
+    pass
+
 # Load scored leads
-scored = get_leads_with_scores()
+scored = leads_with_scores()
 
 if scored.empty or "total_score" not in scored.columns or scored["total_score"].isna().all():
     st.warning("Leads have not been scored yet. Click **'Score All Leads'** in the sidebar to run scoring.")
@@ -157,3 +168,36 @@ fig = px.histogram(
 )
 fig.update_layout(height=300)
 st.plotly_chart(fig, use_container_width=True)
+
+# Recent activity
+st.markdown("---")
+st.markdown("### 🕒 Recent Activity")
+
+ACTIVITY_ICONS = {
+    "Call": "📞",
+    "Email": "✉️",
+    "Meeting": "🤝",
+    "Note": "📝",
+    "Status Change": "🔄",
+}
+
+recent = get_recent_activities(10)
+if recent.empty:
+    st.caption("No activities logged yet — log calls and meetings from the Lead Explorer or Contacts page.")
+else:
+    for _, activity in recent.iterrows():
+        icon = ACTIVITY_ICONS.get(activity.get("activity_type"), "📝")
+        parts = [f"{icon} **{activity.get('activity_type', '')}**"]
+        if activity.get("subject"):
+            parts.append(activity["subject"])
+        contact_name = " ".join(
+            p for p in [activity.get("first_name"), activity.get("last_name")] if isinstance(p, str) and p
+        )
+        lead_name = activity.get("lead_name")
+        who = lead_name if isinstance(lead_name, str) and lead_name else contact_name
+        if who:
+            parts.append(who)
+        date = str(activity.get("activity_date") or "")[:16]
+        if date:
+            parts.append(date)
+        st.markdown(" · ".join(parts))

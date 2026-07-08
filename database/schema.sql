@@ -100,12 +100,139 @@ CREATE TABLE IF NOT EXISTS lead_scores (
     FOREIGN KEY (nearest_stop_id) REFERENCES route_stops(id)
 );
 
+CREATE TABLE IF NOT EXISTS app_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+CREATE TABLE IF NOT EXISTS contacts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    customer_id INTEGER,
+    first_name TEXT NOT NULL,
+    last_name TEXT,
+    title TEXT,
+    email TEXT,
+    phone TEXT,
+    mobile_phone TEXT,
+    preferred_contact_method TEXT DEFAULT 'Phone',
+    is_primary INTEGER DEFAULT 0,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE IF NOT EXISTS activities (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id INTEGER,
+    lead_id INTEGER,
+    customer_id INTEGER,
+    activity_type TEXT NOT NULL,
+    subject TEXT,
+    description TEXT,
+    outcome TEXT,
+    activity_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    logged_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
 CREATE TABLE IF NOT EXISTS core_segments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     segment_name TEXT NOT NULL,
     business_type TEXT NOT NULL,
     min_estimated_revenue REAL DEFAULT 0,
     priority INTEGER DEFAULT 5
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_stages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    display_order INTEGER NOT NULL,
+    probability_pct INTEGER DEFAULT 0,
+    is_active INTEGER DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS deals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    customer_id INTEGER,
+    name TEXT NOT NULL,
+    stage_id INTEGER NOT NULL,
+    expected_weekly_revenue REAL DEFAULT 0,
+    expected_close_date TEXT,
+    assigned_salesperson TEXT,
+    loss_reason TEXT,
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    closed_at TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (customer_id) REFERENCES customers(id),
+    FOREIGN KEY (stage_id) REFERENCES pipeline_stages(id)
+);
+
+CREATE TABLE IF NOT EXISTS deal_stage_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deal_id INTEGER NOT NULL,
+    from_stage_id INTEGER,
+    to_stage_id INTEGER NOT NULL,
+    changed_by TEXT,
+    changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (deal_id) REFERENCES deals(id),
+    FOREIGN KEY (from_stage_id) REFERENCES pipeline_stages(id),
+    FOREIGN KEY (to_stage_id) REFERENCES pipeline_stages(id)
+);
+
+CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    contact_id INTEGER,
+    deal_id INTEGER,
+    title TEXT NOT NULL,
+    description TEXT,
+    task_type TEXT DEFAULT 'Follow-up',
+    priority TEXT DEFAULT 'Medium',
+    status TEXT DEFAULT 'Open',
+    assigned_to TEXT,
+    due_date TEXT,
+    completed_at TIMESTAMP,
+    created_by TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (deal_id) REFERENCES deals(id)
+);
+
+CREATE TABLE IF NOT EXISTS communication_templates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    template_type TEXT NOT NULL,  -- email, call_script, meeting_agenda
+    subject TEXT,
+    body TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS emails (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    lead_id INTEGER,
+    contact_id INTEGER,
+    to_address TEXT,
+    subject TEXT,
+    body TEXT,
+    status TEXT DEFAULT 'Draft',
+    template_id INTEGER,
+    sent_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (lead_id) REFERENCES leads(id),
+    FOREIGN KEY (contact_id) REFERENCES contacts(id),
+    FOREIGN KEY (template_id) REFERENCES communication_templates(id)
 );
 
 -- Indexes for performance
@@ -117,3 +244,19 @@ CREATE INDEX IF NOT EXISTS idx_lead_scores_lead ON lead_scores(lead_id);
 CREATE INDEX IF NOT EXISTS idx_lead_scores_route ON lead_scores(nearest_route_id);
 CREATE INDEX IF NOT EXISTS idx_route_stops_route ON route_stops(route_id);
 CREATE INDEX IF NOT EXISTS idx_routes_dc ON routes(dc_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_lead ON contacts(lead_id);
+CREATE INDEX IF NOT EXISTS idx_contacts_customer ON contacts(customer_id);
+CREATE INDEX IF NOT EXISTS idx_activities_lead ON activities(lead_id);
+CREATE INDEX IF NOT EXISTS idx_activities_contact ON activities(contact_id);
+CREATE INDEX IF NOT EXISTS idx_activities_date ON activities(activity_date);
+CREATE INDEX IF NOT EXISTS idx_deals_lead ON deals(lead_id);
+CREATE INDEX IF NOT EXISTS idx_deals_stage ON deals(stage_id);
+CREATE INDEX IF NOT EXISTS idx_deals_salesperson ON deals(assigned_salesperson);
+CREATE INDEX IF NOT EXISTS idx_deal_history_deal ON deal_stage_history(deal_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_lead ON tasks(lead_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_to);
+CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_deal ON tasks(deal_id);
+CREATE INDEX IF NOT EXISTS idx_emails_lead ON emails(lead_id);
+CREATE INDEX IF NOT EXISTS idx_emails_contact ON emails(contact_id);

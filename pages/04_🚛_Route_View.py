@@ -16,10 +16,12 @@ from database.models import (
 from reports.route_report import generate_route_report
 from maps.visualizations import create_route_map
 from scoring.engine import generate_why_text
+from utils.auth import require_auth
 
 init_db()
 
 st.set_page_config(page_title="Route View", page_icon="🚛", layout="wide")
+require_auth()
 st.title("🚛 Route View")
 
 dcs = get_all_dcs()

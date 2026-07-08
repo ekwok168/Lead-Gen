@@ -6,7 +6,7 @@ import pandas as pd
 import config
 from database.models import (
     get_all_leads, get_all_customers, get_all_stops, get_core_segments,
-    get_stops_by_route, insert_lead_score, clear_scores,
+    get_setting, replace_all_lead_scores,
 )
 from scoring.proximity import compute_nearest_stops, compute_nearest_customers, find_insertion_point
 from scoring.segment import score_segment, check_core_segment_revenue
@@ -36,9 +36,7 @@ def score_revenue(estimated_revenues):
         return np.full(len(revenues), 50.0)
 
     # Percentile rank
-    ranks = np.zeros(len(revenues))
-    for i, rev in enumerate(revenues):
-        ranks[i] = np.sum(revenues <= rev) / len(revenues) * 100
+    ranks = np.searchsorted(np.sort(revenues), revenues, side="right") / len(revenues) * 100
 
     return np.round(ranks, 1)
 
@@ -54,7 +52,7 @@ def score_all_leads(weights=None, progress_callback=None):
         DataFrame of leads with all scores
     """
     if weights is None:
-        weights = config.DEFAULT_WEIGHTS
+        weights = get_setting("scoring_weights") or config.DEFAULT_WEIGHTS
 
     def progress(pct, msg):
         if progress_callback:
@@ -70,11 +68,13 @@ def score_all_leads(weights=None, progress_callback=None):
     stops_df = get_all_stops()
     core_segments_df = get_core_segments()
 
-    progress(10, "Clearing old scores...")
-    clear_scores()
-
     # Prepare coordinate arrays
     lead_coords = leads_df[["latitude", "longitude"]].values.tolist()
+
+    stops_by_route = {
+        route_id: group.sort_values("stop_sequence")
+        for route_id, group in stops_df.groupby("route_id")
+    } if not stops_df.empty else {}
 
     progress(20, "Computing proximity to route stops...")
 
@@ -138,6 +138,7 @@ def score_all_leads(weights=None, progress_callback=None):
     progress(85, "Computing composite scores and finding insertion points...")
 
     # --- Composite scoring and insertion points ---
+    score_rows = []
     for i, (_, lead) in enumerate(leads_df.iterrows()):
         prox = proximity_results[i]
         seg = segment_results[i]
@@ -156,38 +157,38 @@ def score_all_leads(weights=None, progress_callback=None):
         # Find insertion point for the nearest route
         insertion_seq = None
         route_id = prox["nearest_route_id"]
-        if route_id is not None:
-            route_stops = get_stops_by_route(route_id)
-            if not route_stops.empty:
-                rs_coords = route_stops[["latitude", "longitude"]].values.tolist()
-                rs_seqs = route_stops["stop_sequence"].values.tolist()
-                insertion_seq = find_insertion_point(
-                    lead["latitude"], lead["longitude"], rs_coords, rs_seqs
-                )
+        route_stops = stops_by_route.get(route_id) if route_id is not None else None
+        if route_stops is not None and not route_stops.empty:
+            rs_coords = route_stops[["latitude", "longitude"]].values.tolist()
+            rs_seqs = route_stops["stop_sequence"].values.tolist()
+            insertion_seq = find_insertion_point(
+                lead["latitude"], lead["longitude"], rs_coords, rs_seqs
+            )
 
         # Get DC ID from route
         nearest_dc_id = None
-        if route_id is not None and not stops_df.empty:
-            dc_rows = stops_df[stops_df["route_id"] == route_id]
-            if not dc_rows.empty and "dc_id" in dc_rows.columns:
-                nearest_dc_id = int(dc_rows.iloc[0]["dc_id"])
+        if route_stops is not None and not route_stops.empty and "dc_id" in route_stops.columns:
+            nearest_dc_id = int(route_stops.iloc[0]["dc_id"])
 
-        insert_lead_score(
-            lead_id=int(lead["id"]),
-            nearest_route_id=int(route_id) if route_id is not None else None,
-            nearest_dc_id=nearest_dc_id,
-            nearest_stop_id=int(prox["nearest_stop_id"]) if prox["nearest_stop_id"] is not None else None,
-            proximity_score=round(prox["proximity_score"], 1),
-            segment_score=round(seg["segment_score"], 1),
-            density_score=round(dens["density_score"], 1),
-            revenue_score=round(rev_score, 1),
-            total_score=total,
-            score_grade=grade,
-            is_core_segment=seg["is_core_segment"],
-            nearest_customer_distance_mi=round(nearest_cust_distances[i], 3),
-            nearest_route_stop_distance_mi=round(prox["nearest_route_stop_distance_mi"], 3),
-            suggested_insertion_sequence=insertion_seq,
-        )
+        score_rows.append({
+            "lead_id": int(lead["id"]),
+            "nearest_route_id": int(route_id) if route_id is not None else None,
+            "nearest_dc_id": nearest_dc_id,
+            "nearest_stop_id": int(prox["nearest_stop_id"]) if prox["nearest_stop_id"] is not None else None,
+            "proximity_score": round(prox["proximity_score"], 1),
+            "segment_score": round(seg["segment_score"], 1),
+            "density_score": round(dens["density_score"], 1),
+            "revenue_score": round(float(rev_score), 1),
+            "total_score": total,
+            "score_grade": grade,
+            "is_core_segment": seg["is_core_segment"],
+            "nearest_customer_distance_mi": round(float(nearest_cust_distances[i]), 3),
+            "nearest_route_stop_distance_mi": round(prox["nearest_route_stop_distance_mi"], 3),
+            "suggested_insertion_sequence": insertion_seq,
+        })
+
+    progress(95, "Saving scores...")
+    replace_all_lead_scores(score_rows)
 
     progress(100, "Scoring complete!")
 

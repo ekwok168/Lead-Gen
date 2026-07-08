@@ -18,6 +18,7 @@ def generate_dc_report(dc_id):
         - top_leads: top 20 leads ranked by score
         - segment_analysis: segment distribution comparison
         - grade_distribution: lead count by grade
+        - data: raw DataFrames fetched for the report (routes_df, customers_df, leads_df, dc)
     """
     dc = get_dc(dc_id)
     if not dc:
@@ -99,6 +100,12 @@ def generate_dc_report(dc_id):
         "route_comparison": route_comparison_df,
         "top_leads": top_leads,
         "segment_analysis": segment_analysis,
+        "data": {
+            "dc": dc,
+            "routes_df": routes,
+            "customers_df": customers,
+            "leads_df": dc_leads,
+        },
     }
 
 
@@ -116,7 +123,7 @@ def _build_segment_analysis(customers, leads):
     else:
         lead_segments = {}
 
-    all_segments = set(list(cust_segments.keys()) + list(lead_segments.keys()))
+    all_segments = set(cust_segments) | set(lead_segments)
 
     rows = []
     for seg in sorted(all_segments):
