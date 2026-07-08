@@ -505,7 +505,7 @@ def set_setting(key, value):
 
 UPDATABLE_CONTACT_FIELDS = {
     "first_name", "last_name", "title", "email", "phone", "mobile_phone",
-    "preferred_contact_method", "is_primary", "notes",
+    "preferred_contact_method", "is_primary", "notes", "lead_id", "customer_id",
 }
 
 
@@ -1203,7 +1203,8 @@ def get_table_counts():
     counts = {}
     for table in ["distribution_centers", "routes", "customers", "leads", "lead_scores",
                   "route_stops", "contacts", "activities", "pipeline_stages", "deals",
-                  "deal_stage_history", "tasks", "communication_templates", "emails"]:
+                  "deal_stage_history", "tasks", "communication_templates", "emails",
+                  "core_segments", "app_settings"]:
         row = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
         counts[table] = row[0]
     conn.close()
@@ -1216,7 +1217,8 @@ def clear_all_data():
     for table in ["emails", "communication_templates", "tasks", "deal_stage_history",
                   "deals", "pipeline_stages", "activities",
                   "contacts", "lead_scores", "route_stops", "leads",
-                  "customers", "routes", "distribution_centers", "core_segments"]:
+                  "customers", "routes", "distribution_centers", "core_segments",
+                  "app_settings"]:
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
     conn.close()
