@@ -116,9 +116,25 @@ Lead-Gen/
 python -m pytest tests/ -v
 ```
 
+## Deploying to Railway (Recommended)
+
+Railway gives the app persistent storage, so the SQLite database survives restarts and redeploys — no manual backup routine needed.
+
+1. Go to [railway.app](https://railway.app) and create a new project from this GitHub repo. Railway auto-detects the Python app and uses the included `railway.json` / `Procfile` start command.
+2. Add a **Volume** to the service (right-click the service > **Attach Volume**) with mount path `/data`.
+3. Set these environment variables on the service (**Variables** tab):
+   ```
+   LEAD_GEN_DB_PATH=/data/lead_gen.db
+   APP_PASSWORD=your-team-password-here
+   ```
+   `LEAD_GEN_DB_PATH` puts the database on the persistent volume; `APP_PASSWORD` enables the login gate (omit it to run without a password).
+4. Generate a public domain (**Settings** > **Networking** > **Generate Domain**) and share the URL with your team.
+
+Pushing to `main` auto-redeploys; the database on the volume is untouched.
+
 ## Deploying to Streamlit Community Cloud (Free)
 
-This is the simplest way to make the tool live for your sales team. No servers, no IT setup.
+A free alternative if you don't need persistent storage. No servers, no IT setup.
 
 ### Step 1: Get the code on GitHub
 
