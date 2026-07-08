@@ -98,6 +98,7 @@ GEOCODING_RATE_LIMIT_DELAY = 1.1  # seconds between requests
 # Duplicate detection
 DUPLICATE_DISTANCE_THRESHOLD_MI = 0.05  # ~264 feet
 DUPLICATE_NAME_SIMILARITY_THRESHOLD = 85  # fuzzy match score 0-100
+DUPLICATE_NAME_MATCH_RADIUS_MI = 0.5  # name matches only count within this distance
 
 # Map defaults
 MAP_DEFAULT_ZOOM = 11

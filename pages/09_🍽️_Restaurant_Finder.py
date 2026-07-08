@@ -41,7 +41,7 @@ col1, col2 = st.columns(2)
 
 with col1:
     dc_options = {"all": "All Distribution Centers"}
-    dc_options.update({row["id"]: f"{row['code']} - {row['name']}" for _, row in dcs.iterrows()})
+    dc_options.update({int(row["id"]): f"{row['code']} - {row['name']}" for _, row in dcs.iterrows()})
     selected_dc = st.selectbox("Distribution Center", options=list(dc_options.keys()),
                                format_func=lambda x: dc_options[x])
 
@@ -51,7 +51,7 @@ with col2:
     else:
         routes = get_routes_by_dc(selected_dc)
 
-    route_options = {row["id"]: f"{row['route_code']} - {row.get('route_name', '')}" for _, row in routes.iterrows()}
+    route_options = {int(row["id"]): f"{row['route_code']} - {row.get('route_name', '')}" for _, row in routes.iterrows()}
     selected_routes = st.multiselect(
         "Routes (leave empty for all routes)",
         options=list(route_options.keys()),
