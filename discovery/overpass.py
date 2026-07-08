@@ -72,15 +72,35 @@ def cluster_coordinates(coords, radius_miles):
     clusters = []
     for label in sorted(set(labels)):
         members = points[labels == label]
-        centroid_lat = float(members[:, 0].mean())
-        centroid_lon = float(members[:, 1].mean())
-        dists = haversine_miles(
-            centroid_lat, centroid_lon, members[:, 0], members[:, 1]
-        )
-        effective_radius = radius_miles + float(np.max(dists))
-        clusters.append((centroid_lat, centroid_lon, effective_radius))
+        centroid, effective_radius = _emit_cluster(members, radius_miles)
+        if effective_radius <= radius_miles * 2.5:
+            clusters.append((centroid[0], centroid[1], effective_radius))
+            continue
+        # DBSCAN chains points transitively (e.g. stops strung along a route),
+        # which can balloon one cluster to an area Overpass cannot serve.
+        # Split oversized clusters on a grid of ~radius-sized cells; the cell
+        # diagonal bounds each subgroup's effective radius at ~1.71x radius.
+        lat_cell = radius_miles / 69.0
+        lon_cell = radius_miles / (69.0 * max(np.cos(np.radians(members[:, 0].mean())), 0.01))
+        cells = {}
+        for lat, lon in members:
+            key = (int(np.floor(lat / lat_cell)), int(np.floor(lon / lon_cell)))
+            cells.setdefault(key, []).append((lat, lon))
+        for cell_members in cells.values():
+            centroid, effective_radius = _emit_cluster(
+                np.array(cell_members, dtype=np.float64), radius_miles
+            )
+            clusters.append((centroid[0], centroid[1], effective_radius))
 
     return clusters
+
+
+def _emit_cluster(members, radius_miles):
+    """Return ((centroid_lat, centroid_lon), effective_radius) for member points."""
+    centroid_lat = float(members[:, 0].mean())
+    centroid_lon = float(members[:, 1].mean())
+    dists = haversine_miles(centroid_lat, centroid_lon, members[:, 0], members[:, 1])
+    return (centroid_lat, centroid_lon), radius_miles + float(np.max(dists))
 
 
 def build_overpass_query(lat, lon, radius_m, amenities):
@@ -90,7 +110,7 @@ def build_overpass_query(lat, lon, radius_m, amenities):
         lines.append(f'  node["amenity"="{amenity}"](around:{radius_m:.0f},{lat:.6f},{lon:.6f});')
         lines.append(f'  way["amenity"="{amenity}"](around:{radius_m:.0f},{lat:.6f},{lon:.6f});')
     lines.append(");")
-    lines.append("out center tags;")
+    lines.append("out center;")
     return "\n".join(lines)
 
 
@@ -269,6 +289,7 @@ def discover_restaurants(search_coords, radius_miles=None, amenities=None,
         for row_lat, row_lon in zip(df["latitude"].to_numpy(), df["longitude"].to_numpy())
     ]
     df["distance_mi"] = np.round(distances, 3)
+    df = df[df["distance_mi"] <= radius_miles].reset_index(drop=True)
 
     report(100, f"Found {len(df)} restaurants.")
     return df

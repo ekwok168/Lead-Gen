@@ -158,6 +158,7 @@ if not has_data:
         with st.spinner("Generating sample data..."):
             from database.seed_data import seed_database
             seed_database()
+        invalidate()
         st.success("Sample data loaded! Navigate to the Dashboard or Upload Data page to explore.")
         st.rerun()
 

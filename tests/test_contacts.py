@@ -87,9 +87,15 @@ class TestContactsAndActivities(unittest.TestCase):
         from database.models import insert_contact, update_contact
         contact_id = insert_contact(first_name="Bob", lead_id=self.lead_id)
         with self.assertRaises(ValueError):
-            update_contact(contact_id, lead_id=42)
+            update_contact(contact_id, created_at="2020-01-01")
         with self.assertRaises(ValueError):
             update_contact(contact_id, bogus_column="x")
+
+    def test_update_contact_can_relink(self):
+        from database.models import insert_contact, update_contact, get_contact
+        contact_id = insert_contact(first_name="Bob")
+        update_contact(contact_id, lead_id=self.lead_id, customer_id=None)
+        self.assertEqual(get_contact(contact_id)["lead_id"], self.lead_id)
 
     def test_contacts_by_lead_vs_customer(self):
         from database.models import (

@@ -178,8 +178,9 @@ with templates_tab:
                 st.warning("Check **Confirm delete** first.")
 
     st.markdown("---")
+    new_template_ver = st.session_state.setdefault("new_template_ver", 0)
     with st.expander("➕ New Template"):
-        with st.form("new_template_form", clear_on_submit=True):
+        with st.form(f"new_template_form_{new_template_ver}", clear_on_submit=False):
             col1, col2 = st.columns(2)
             with col1:
                 n_name = st.text_input("Name *")
@@ -203,6 +204,7 @@ with templates_tab:
                         subject=n_subject.strip() or None,
                     )
                     invalidate()
+                    st.session_state["new_template_ver"] = new_template_ver + 1
                     st.success(f"Template '{n_name.strip()}' created!")
                     st.rerun()
 
@@ -243,10 +245,11 @@ with compose_tab:
         if contact_row is not None:
             default_to = text_or_none(contact_row.get("email")) or ""
 
-        state_key = f"{lead_id}_{contact_id}_{compose_template_id}"
-        to_address = st.text_input("To", value=default_to, key=f"compose_to_{state_key}")
-        email_subject = st.text_input("Subject", value=default_subject, key=f"compose_subject_{state_key}")
-        email_body = st.text_area("Body", value=default_body, height=250, key=f"compose_body_{state_key}")
+        # Draft (subject/body) survives contact changes; only lead/template switches reset it.
+        draft_key = f"{lead_id}_{compose_template_id}"
+        to_address = st.text_input("To", value=default_to, key=f"compose_to_{lead_id}_{contact_id}")
+        email_subject = st.text_input("Subject", value=default_subject, key=f"compose_subject_{draft_key}")
+        email_body = st.text_area("Body", value=default_body, height=250, key=f"compose_body_{draft_key}")
 
         col1, col2 = st.columns(2)
         with col1:

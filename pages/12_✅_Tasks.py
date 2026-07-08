@@ -136,15 +136,14 @@ else:
 
         c1, c2, c3, c4, c5, c6 = st.columns([1, 1.2, 3.5, 2.5, 1.8, 1.5])
         with c1:
-            done = st.checkbox("Done", value=status == "Completed", key=f"done_{task_id}")
-            if done and status != "Completed":
-                update_task_status(task_id, "Completed")
+            checked = status == "Completed"
+            done_key = f"done_{task_id}_{checked}"
+
+            def _toggle_done(tid=task_id, key=done_key):
+                update_task_status(tid, "Completed" if st.session_state[key] else "Open")
                 invalidate()
-                st.rerun()
-            elif not done and status == "Completed":
-                update_task_status(task_id, "Open")
-                invalidate()
-                st.rerun()
+
+            st.checkbox("Done", value=checked, key=done_key, on_change=_toggle_done)
         with c2:
             st.write(f"{PRIORITY_BADGES.get(priority, '⚪')} {priority}")
         with c3:
@@ -238,8 +237,10 @@ if not deals.empty:
         for _, row in deals.iterrows()
     })
 
+create_task_ver = st.session_state.setdefault("create_task_ver", 0)
+
 with st.expander("➕ Create Task"):
-    with st.form("create_task_form", clear_on_submit=True):
+    with st.form(f"create_task_form_{create_task_ver}", clear_on_submit=False):
         col1, col2 = st.columns(2)
         with col1:
             n_title = st.text_input("Title *")
@@ -280,5 +281,6 @@ with st.expander("➕ Create Task"):
                     created_by=n_created_by.strip() or None,
                 )
                 invalidate()
+                st.session_state["create_task_ver"] = create_task_ver + 1
                 st.success(f"Task '{n_title.strip()}' created!")
                 st.rerun()

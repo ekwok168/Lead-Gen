@@ -56,8 +56,10 @@ customer_options = {None: "None"}
 if not customers.empty:
     customer_options.update({int(row["id"]): f"{row['name']} ({row['id']})" for _, row in customers.iterrows()})
 
+add_contact_ver = st.session_state.setdefault("add_contact_ver", 0)
+
 with st.expander("➕ Add Contact"):
-    with st.form("add_contact_form", clear_on_submit=True):
+    with st.form(f"add_contact_form_{add_contact_ver}", clear_on_submit=False):
         col1, col2 = st.columns(2)
         with col1:
             first_name = st.text_input("First Name *")
@@ -97,6 +99,7 @@ with st.expander("➕ Add Contact"):
                     lead_id=link_lead,
                     customer_id=link_customer,
                 )
+                st.session_state["add_contact_ver"] = add_contact_ver + 1
                 st.success(f"Contact {first_name.strip()} added!")
                 st.rerun()
 

@@ -60,6 +60,24 @@ class TestClusterCoordinates(unittest.TestCase):
         coords = [(0.0, 0.0), (float("nan"), float("nan"))]
         self.assertEqual(cluster_coordinates(coords, radius_miles=1.0), [])
 
+    def test_chained_line_split_into_bounded_clusters(self):
+        # 30 stops in a north-south line, 0.8 mi apart: DBSCAN chains them
+        # into one cluster spanning ~23 miles, which must be split so no
+        # query circle exceeds 2.5x the requested radius.
+        radius = 1.0
+        coords = [(39.7392 + i * 0.8 / 69.0, -104.9903) for i in range(30)]
+        clusters = cluster_coordinates(coords, radius_miles=radius)
+        self.assertGreater(len(clusters), 1)
+        for _, _, eff_radius in clusters:
+            self.assertLessEqual(eff_radius, radius * 2.5)
+        # Every original point must be covered by some cluster circle
+        for lat, lon in coords:
+            covered = any(
+                float(haversine_miles(clat, clon, lat, lon)) <= eff_radius + 1e-6
+                for clat, clon, eff_radius in clusters
+            )
+            self.assertTrue(covered, f"point ({lat}, {lon}) not covered")
+
 
 class TestBuildOverpassQuery(unittest.TestCase):
     """Test Overpass QL query construction."""
@@ -78,7 +96,7 @@ class TestBuildOverpassQuery(unittest.TestCase):
         query = build_overpass_query(39.7392, -104.9903, 500, ["bar"])
         self.assertIn("[out:json]", query)
         self.assertIn(f"[timeout:{config.OVERPASS_TIMEOUT}]", query)
-        self.assertIn("out center tags;", query)
+        self.assertEqual(query.splitlines()[-1], "out center;")
 
 
 class TestParseOverpassElements(unittest.TestCase):
@@ -180,6 +198,17 @@ class TestDiscoverRestaurants(unittest.TestCase):
         far = df[df["name"] == "One Mile North"].iloc[0]
         self.assertAlmostEqual(at_point["distance_mi"], 0.0, places=2)
         self.assertAlmostEqual(far["distance_mi"], 1.0, places=1)
+
+    @patch("discovery.overpass.time.sleep")
+    @patch("discovery.overpass.query_overpass")
+    def test_results_filtered_to_requested_radius(self, mock_query, _mock_sleep):
+        mock_query.return_value = {"elements": [
+            self._element(1, 39.7392, -104.9903, "At The Search Point"),
+            self._element(2, 39.8117, -104.9903, "Five Miles North"),
+        ]}
+        df = discover_restaurants([(39.7392, -104.9903)], radius_miles=1.0)
+        self.assertEqual(len(df), 1)
+        self.assertEqual(df.iloc[0]["name"], "At The Search Point")
 
     @patch("discovery.overpass.time.sleep")
     @patch("discovery.overpass.query_overpass")
